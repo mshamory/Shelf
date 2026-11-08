@@ -1,0 +1,17 @@
+services:
+  shelf:
+    build: .
+    image: shelf:latest
+    container_name: shelf
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Your WACZ archives (read-only is fine if you disable uploads).
+      - ./library:/library
+      # Database and downloaded covers.
+      - ./data:/data
+    environment:
+      SHELF_SCAN_ON_STARTUP: "true"
+      SHELF_ALLOW_UPLOADS: "true"
+      SHELF_FETCH_COVERS: "true"

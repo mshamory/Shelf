@@ -1,0 +1,9 @@
+.git
+.venv
+data
+library
+tests
+**/__pycache__
+.pytest_cache
+.ruff_cache
+*.wacz
