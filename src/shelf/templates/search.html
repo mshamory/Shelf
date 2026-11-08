@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Search · Shelf{% endblock %}
+{% block content %}
+<h2>Search</h2>
+<form method="get" role="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Words or phrase in chapter text" autofocus>
+  {% if novel_id %}<input type="hidden" name="novel" value="{{ novel_id }}">{% endif %}
+</form>
+{% if q and q|length < 2 %}
+  <p>Type at least two characters.</p>
+{% elif q %}
+  <p class="muted">{{ results|length }}{% if results|length == 100 %}+{% endif %} result(s) for “{{ q }}”</p>
+  {% for r in results %}
+  <article class="search-result">
+    <a href="/chapter/{{ r.chapter.id }}"><strong>{{ r.chapter.title }}</strong></a>
+    <small class="muted">· {{ r.novel_title }}</small>
+    <p>{{ r.snippet }}</p>
+  </article>
+  {% endfor %}
+{% endif %}
+{% endblock %}

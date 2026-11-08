@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Column, Text, event
@@ -9,7 +7,7 @@ from .config import settings
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(timezone.utc)
 
 
 class Novel(SQLModel, table=True):

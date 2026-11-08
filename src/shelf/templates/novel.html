@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ novel.title }} · Shelf{% endblock %}
+{% block content %}
+<section class="novel-head">
+  <div class="novel-cover">{% include "_cover.html" %}</div>
+  <div class="novel-info">
+    <hgroup>
+      <h2>{{ novel.title }}</h2>
+      {% if novel.authors %}<p>by {{ novel.authors|join(', ') }}</p>{% endif %}
+    </hgroup>
+
+    <p class="buttons">
+      {% if chapters %}
+        <a role="button" href="/novel/{{ novel.id }}/read">
+          {% if last %}Continue · {{ last.title }}{% else %}Start reading{% endif %}
+        </a>
+      {% endif %}
+      {% if novel.nu_url %}
+        <a role="button" class="outline" href="{{ novel.nu_url }}" target="_blank" rel="noopener noreferrer">NovelUpdates ↗</a>
+      {% endif %}
+    </p>
+
+    <dl class="facts">
+      {% if novel.novel_type %}<dt>Type</dt><dd>{{ novel.novel_type }}</dd>{% endif %}
+      {% if novel.language %}<dt>Language</dt><dd>{{ novel.language }}</dd>{% endif %}
+      {% if novel.year %}<dt>Year</dt><dd>{{ novel.year }}</dd>{% endif %}
+      {% if novel.status %}<dt>Status</dt><dd>{{ novel.status }}</dd>{% endif %}
+      {% if novel.rating %}<dt>Rating</dt><dd>★ {{ '%.1f'|format(novel.rating) }}{% if novel.votes %} ({{ novel.votes }} votes){% endif %}</dd>{% endif %}
+      {% if novel.original_publisher %}<dt>Original publisher</dt><dd>{{ novel.original_publisher|join(', ') }}</dd>{% endif %}
+      {% if novel.english_publisher %}<dt>English publisher</dt><dd>{{ novel.english_publisher|join(', ') }}</dd>{% endif %}
+      {% if novel.artists %}<dt>Artists</dt><dd>{{ novel.artists|join(', ') }}</dd>{% endif %}
+      <dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
+      {% if novel.metadata_source %}<dt>Metadata</dt><dd>{{ {'wacz': 'NovelUpdates page in archive', 'upload': 'Uploaded NovelUpdates page', 'fetch': 'Fetched from NovelUpdates', 'manual': 'Edited manually'}[novel.metadata_source] }}</dd>{% endif %}
+    </dl>
+
+    {% if novel.genres %}
+      <p class="chips">{% for g in novel.genres %}<a class="chip" href="/?q={{ g|urlencode }}">{{ g }}</a>{% endfor %}</p>
+    {% endif %}
+    {% if novel.import_error %}<p class="flash flash-error">{{ novel.import_error }}</p>{% endif %}
+  </div>
+</section>
+
+{% if novel.description_html %}
+<section class="description">{{ novel.description_html|safe }}</section>
+{% endif %}
+
+{% if novel.tags %}
+<details class="tags">
+  <summary>Tags ({{ novel.tags|length }})</summary>
+  <p class="chips">{% for t in novel.tags %}<a class="chip chip-small" href="/?q={{ t|urlencode }}">{{ t }}</a>{% endfor %}</p>
+</details>
+{% endif %}
+{% if novel.alt_names %}
+<details>
+  <summary>Associated names</summary>
+  <ul>{% for a in novel.alt_names %}<li>{{ a }}</li>{% endfor %}</ul>
+</details>
+{% endif %}
+
+<details class="metadata-tools" {% if not novel.metadata_source %}open{% endif %}>
+  <summary>NovelUpdates metadata</summary>
+  {% if not novel.metadata_source %}
+  <p><small>No metadata yet. NovelUpdates blocks most automated requests, so the most reliable options are
+    to archive the series page together with the chapters, or to save it from your browser and upload it here.</small></p>
+  {% endif %}
+  <div class="grid">
+    <form method="post" action="/novel/{{ novel.id }}/metadata/upload" enctype="multipart/form-data">
+      <label>Saved series page (.html)
+        <input type="file" name="file" accept=".html,.htm,text/html" required>
+      </label>
+      <input type="hidden" name="url" value="{{ novel.nu_url or '' }}">
+      <button type="submit" class="secondary">Import saved page</button>
+    </form>
+    <form method="post" action="/novel/{{ novel.id }}/metadata/fetch">
+      <label>Series URL
+        <input type="url" name="url" required placeholder="https://www.novelupdates.com/series/…"
+               value="{{ novel.nu_url or '' }}">
+      </label>
+      <button type="submit" class="secondary">Fetch</button>
+    </form>
+  </div>
+  <p>
+    <a href="https://www.novelupdates.com/series-finder/?sf=1&sh={{ (novel.archive_title or novel.title)|urlencode }}"
+       target="_blank" rel="noopener noreferrer">Search NovelUpdates for “{{ novel.archive_title or novel.title }}” ↗</a>
+  </p>
+  <details>
+    <summary>Edit manually</summary>
+    <form method="post" action="/novel/{{ novel.id }}/metadata/edit">
+      <label>Title <input name="title" value="{{ novel.title }}" required></label>
+      <label>Authors <input name="authors" value="{{ novel.authors|join(', ') }}" placeholder="Comma separated"></label>
+      <label>Genres <input name="genres" value="{{ novel.genres|join(', ') }}" placeholder="Comma separated"></label>
+      <label>Tags <input name="tags" value="{{ novel.tags|join(', ') }}" placeholder="Comma separated"></label>
+      <label>Status <input name="status" value="{{ novel.status or '' }}"></label>
+      <button type="submit" class="secondary">Save</button>
+    </form>
+  </details>
+</details>
+
+<section class="chapter-list">
+  <header class="chapter-list-head">
+    <h3>Chapters <small class="muted">({{ chapters|length }}{% if hidden_count and not show_hidden %}, {{ hidden_count }} hidden{% endif %})</small></h3>
+    <div class="actions">
+      {% if show_hidden %}
+        <a href="/novel/{{ novel.id }}">Done</a>
+      {% else %}
+        <a href="/novel/{{ novel.id }}?hidden=1" title="Hide pages that aren't chapters">Edit list</a>
+      {% endif %}
+      <form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>
+      {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
+    </div>
+  </header>
+  <ol class="chapters">
+    {% for c in chapters %}
+    <li id="ch-{{ c.id }}" class="{% if last and c.id == last.id %}current{% endif %} {% if c.hidden %}is-hidden{% endif %}">
+      <a href="/chapter/{{ c.id }}">{{ c.title }}</a>
+      {% if show_hidden %}
+        <form method="post" action="/chapter/{{ c.id }}/toggle-hidden" class="inline">
+          <button class="outline secondary small">{% if c.hidden %}Show{% else %}Hide{% endif %}</button>
+        </form>
+      {% else %}
+        <small class="muted">{{ (c.char_count / 1000)|round(1) }}k</small>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="toolbar">
+  <form method="get" class="filter" role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Filter by title, author, genre, tag…" aria-label="Filter library">
+    <select name="sort" aria-label="Sort" onchange="this.form.submit()">
+      <option value="recent" {% if sort == 'recent' %}selected{% endif %}>Recently read</option>
+      <option value="added" {% if sort == 'added' %}selected{% endif %}>Recently added</option>
+      <option value="title" {% if sort == 'title' %}selected{% endif %}>Title</option>
+    </select>
+  </form>
+  <div class="actions">
+    <form method="post" action="/scan">
+      <button type="submit" class="secondary" {% if scan.running %}aria-busy="true" disabled{% endif %}>
+        {% if scan.running %}Scanning {{ scan.done }}/{{ scan.total }}…{% else %}Rescan library{% endif %}
+      </button>
+    </form>
+    {% if settings.allow_uploads %}
+    <details class="dropdown upload">
+      <summary role="button">Add WACZ</summary>
+      <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form"
+            onsubmit="this.querySelector('button').setAttribute('aria-busy','true')">
+        <input type="file" name="file" accept=".wacz" required>
+        <button type="submit">Upload &amp; import</button>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+</section>
+
+{% if scan.errors and not scan.running %}
+<details class="scan-errors">
+  <summary>{{ scan.errors|length }} archive(s) had problems during the last scan</summary>
+  <ul>{% for e in scan.errors %}<li><code>{{ e }}</code></li>{% endfor %}</ul>
+</details>
+{% endif %}
+
+{% if novels %}
+<div class="grid-novels">
+  {% for novel in novels %}
+  <article class="novel-card">
+    <a href="/novel/{{ novel.id }}" class="cover-link">{% include "_cover.html" %}</a>
+    <div class="card-body">
+      <a href="/novel/{{ novel.id }}" class="card-title">{{ novel.title }}</a>
+      {% if novel.authors %}<small class="muted">{{ novel.authors|join(', ') }}</small>{% endif %}
+      <small class="muted">{{ counts.get(novel.id, 0) }} chapters
+        {% if novel.import_error %}· <span class="warn">{{ novel.import_error }}</span>{% endif %}</small>
+      {% set p = progress.get(novel.id) %}
+      {% if p %}
+        <a href="/chapter/{{ p.id }}" class="continue">Continue: {{ p.title }}</a>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% elif q %}
+<p>No novels match “{{ q }}”.</p>
+{% else %}
+<article class="empty">
+  <h3>Your shelf is empty</h3>
+  <p>Put <code>.wacz</code> archives in the library folder
+     (<code>{{ settings.library_dir }}</code>) and rescan{% if settings.allow_uploads %}, or upload one with <em>Add WACZ</em>{% endif %}.</p>
+  <p>Each archive becomes one novel. Capture chapters with
+     <a href="https://archiveweb.page" target="_blank" rel="noopener">ArchiveWeb.page</a> or
+     <a href="https://webrecorder.net/browsertrix/" target="_blank" rel="noopener">Browsertrix</a>.
+     If the archive also includes the novel's NovelUpdates series page, its metadata is picked up automatically.</p>
+</article>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if scan.running %}
+<script>
+  // Refresh when the background scan finishes.
+  const poll = setInterval(async () => {
+    const s = await (await fetch("/api/scan")).json();
+    if (!s.running) { clearInterval(poll); location.reload(); }
+  }, 1500);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,5 @@
+{% if novel.cover_file %}
+  <img class="cover" src="/covers/{{ novel.cover_file }}" alt="" loading="lazy">
+{% else %}
+  <div class="cover cover-placeholder" aria-hidden="true"><span>{{ novel.title[:1] }}</span></div>
+{% endif %}

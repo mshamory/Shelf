@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ chapter.title }} · {{ novel.title }}{% endblock %}
+{% block body_class %}reader{% endblock %}
+{% block main_class %}reader-main{% endblock %}
+{% block header %}
+<header class="reader-bar">
+  <nav class="reader-nav">
+    <a href="/novel/{{ novel.id }}" class="reader-back" title="Back to {{ novel.title }}">← <span>{{ novel.title }}</span></a>
+    <select id="toc" aria-label="Jump to chapter">
+      {% for c in toc %}<option value="{{ c.id }}" {% if c.id == chapter.id %}selected{% endif %}>{{ c.title }}</option>{% endfor %}
+    </select>
+    <button type="button" id="settings-toggle" class="outline secondary small" aria-expanded="false" aria-controls="settings" title="Reading settings">Aa</button>
+  </nav>
+  <form id="settings" class="reader-settings" hidden>
+    <label>Theme
+      <select name="theme"><option value="auto">Auto</option><option value="light">Light</option><option value="dark">Dark</option><option value="sepia">Sepia</option></select>
+    </label>
+    <label>Font
+      <select name="font"><option value="serif">Serif</option><option value="sans">Sans-serif</option></select>
+    </label>
+    <label>Size <input type="range" name="size" min="14" max="28" step="1"></label>
+    <label>Line height <input type="range" name="leading" min="1.3" max="2.2" step="0.1"></label>
+    <label>Width <input type="range" name="width" min="30" max="60" step="2"></label>
+    <label>Align
+      <select name="align"><option value="left">Left</option><option value="justify">Justify</option></select>
+    </label>
+  </form>
+  <div class="reader-progress" aria-hidden="true"><div id="progress-bar"></div></div>
+</header>
+{% endblock %}
+{% block content %}
+<article class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-resume="{{ resume }}">
+  <header>
+    <p class="muted chapter-meta">Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
+    <h1>{{ chapter.title }}</h1>
+  </header>
+  <div class="chapter-body">{{ chapter.content_html|safe }}</div>
+  <footer class="chapter-foot">
+    <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at[:10] }}{% endif %}</small>
+  </footer>
+</article>
+<nav class="chapter-nav">
+  {% if prev_id %}<a role="button" class="secondary outline" href="/chapter/{{ prev_id }}" rel="prev">← Previous</a>{% else %}<span></span>{% endif %}
+  <a href="/novel/{{ novel.id }}">Contents</a>
+  {% if next_id %}<a role="button" href="/chapter/{{ next_id }}" rel="next">Next →</a>{% else %}<span class="muted">The end (for now)</span>{% endif %}
+</nav>
+{% endblock %}
+{% block footer %}{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='reader.js') }}" defer></script>
+{% endblock %}

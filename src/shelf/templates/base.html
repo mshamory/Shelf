@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="{% block theme %}{% endblock %}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}Shelf{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='vendor/pico.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='shelf.css') }}">
+  <script>
+    // Apply the saved theme before first paint.
+    try { const t = JSON.parse(localStorage.getItem("shelf.reader") || "{}").theme;
+          if (t && t !== "auto") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% block header %}
+  <header class="container">
+    <nav>
+      <ul><li><a href="/" class="brand"><strong>📚 Shelf</strong></a></li></ul>
+      <ul>
+        <li>
+          <form action="/search" method="get" role="search" class="nav-search">
+            <input type="search" name="q" placeholder="Search chapters" aria-label="Search chapters"
+                   value="{{ request.query_params.get('q', '') if request.url.path == '/search' else '' }}">
+          </form>
+        </li>
+      </ul>
+    </nav>
+  </header>
+  {% endblock %}
+  <main class="{% block main_class %}container{% endblock %}">
+    {% if request.query_params.get('msg') %}
+      <p class="flash" role="status">{{ request.query_params.get('msg') }}</p>
+    {% endif %}
+    {% if request.query_params.get('error') %}
+      <p class="flash flash-error" role="alert">{{ request.query_params.get('error') }}</p>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block footer %}
+  <footer class="container"><small>Shelf {{ version }}</small></footer>
+  {% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

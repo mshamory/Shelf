@@ -1,0 +1,103 @@
+:root {
+  --reader-size: 19px;
+  --reader-leading: 1.7;
+  --reader-width: 40rem;
+  --reader-align: left;
+  --pico-form-element-spacing-vertical: .5rem;
+}
+[data-theme="sepia"] {
+  color-scheme: light;
+  --pico-background-color: #f4ecd8;
+  --pico-color: #4b3b2a;
+  --pico-h1-color: #3b2c1d;
+  --pico-muted-color: #8a7560;
+  --pico-muted-border-color: #e2d5b8;
+  --pico-card-background-color: #efe5cc;
+  --pico-form-element-background-color: #f8f1e1;
+  --pico-form-element-border-color: #d6c6a3;
+  --pico-primary: #8b5a2b;
+  --pico-primary-background: #8b5a2b;
+  --pico-primary-hover: #6f4620;
+  --pico-primary-hover-background: #6f4620;
+  --pico-primary-border: #8b5a2b;
+}
+body { background: var(--pico-background-color); }
+.muted { color: var(--pico-muted-color); }
+.warn { color: #c0392b; }
+.small, button.small { padding: .25rem .6rem; font-size: .8rem; margin: 0; width: auto; }
+.brand { text-decoration: none; }
+.nav-search input { margin: 0; height: 2.4rem; }
+
+.flash { padding: .75rem 1rem; border-radius: var(--pico-border-radius); background: var(--pico-card-background-color); border-left: 4px solid var(--pico-primary); }
+.flash-error { border-left-color: #c0392b; }
+
+/* library */
+.toolbar { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: start; margin-bottom: 1.5rem; }
+.toolbar .filter { display: flex; gap: .5rem; flex: 1 1 22rem; margin: 0; }
+.toolbar .filter input { flex: 1; margin: 0; }
+.toolbar .filter select { width: auto; margin: 0; }
+.toolbar .actions { display: flex; gap: .5rem; align-items: start; }
+.toolbar .actions form, .toolbar .actions details { margin: 0; }
+.upload .upload-form { position: absolute; right: 0; z-index: 5; min-width: 18rem; padding: 1rem; margin-top: .25rem; background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); box-shadow: var(--pico-card-box-shadow); }
+.upload { position: relative; }
+.upload summary { margin: 0; }
+.scan-errors { margin-bottom: 1rem; }
+
+.grid-novels { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1.25rem; }
+.novel-card { margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.novel-card .card-body { padding: .75rem; display: flex; flex-direction: column; gap: .2rem; }
+.card-title { font-weight: 600; line-height: 1.25; text-decoration: none; color: var(--pico-color); }
+.continue { font-size: .8rem; margin-top: .3rem; }
+.cover { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; background: var(--pico-muted-border-color); }
+.cover-placeholder { display: grid; place-items: center; font-size: 3rem; font-weight: 700; color: var(--pico-muted-color);
+  background: linear-gradient(135deg, var(--pico-muted-border-color), var(--pico-card-background-color)); }
+.empty { max-width: 40rem; }
+
+/* novel */
+.novel-head { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr; gap: 2rem; align-items: start; }
+.novel-cover .cover { border-radius: var(--pico-border-radius); }
+@media (max-width: 576px) { .novel-head { grid-template-columns: 1fr; } .novel-cover { max-width: 12rem; } }
+.buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; font-size: .9rem; }
+.facts dt { color: var(--pico-muted-color); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.chip { padding: .15rem .6rem; border-radius: 1rem; font-size: .85rem; text-decoration: none; border: 1px solid var(--pico-muted-border-color); }
+.chip-small { font-size: .75rem; }
+.description { margin: 1.5rem 0; max-width: 50rem; }
+.metadata-tools { margin: 1.5rem 0; padding: 1rem; border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
+.metadata-tools form { margin-bottom: 0; }
+.chapter-list-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.chapter-list-head h3 { margin: 0; }
+.chapter-list-head .actions { display: flex; gap: .75rem; align-items: center; }
+.chapter-list-head form { margin: 0; }
+.chapters { columns: 2 22rem; column-gap: 2rem; padding-left: 2.5rem; }
+.chapters li { break-inside: avoid; display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+.chapters li.current > a { font-weight: 700; }
+.chapters li.is-hidden > a { opacity: .45; text-decoration: line-through; }
+.chapters form.inline { margin: 0; }
+
+.search-result { padding: 1rem; margin-bottom: .75rem; }
+.search-result p { margin: .25rem 0 0; font-size: .9rem; }
+
+/* reader */
+.reader-bar { position: sticky; top: 0; z-index: 10; background: var(--pico-background-color); border-bottom: 1px solid var(--pico-muted-border-color); }
+.reader-nav { display: flex; align-items: center; gap: .75rem; padding: .4rem 1rem; max-width: 70rem; margin: 0 auto; }
+.reader-back { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30%; text-decoration: none; }
+.reader-nav select { margin: 0; flex: 1; min-width: 0; padding-block: .3rem; height: auto; }
+.reader-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem 1rem; padding: .75rem 1rem; max-width: 70rem; margin: 0 auto; font-size: .85rem; }
+.reader-settings label { margin: 0; }
+.reader-settings select, .reader-settings input { margin: .2rem 0 0; }
+.reader-progress { height: 3px; }
+#progress-bar { height: 100%; width: 0; background: var(--pico-primary); transition: width .15s; }
+.reader-main { max-width: var(--reader-width); margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.chapter h1 { font-size: 1.6em; margin-bottom: 1.5em; }
+.chapter-meta { font-size: .8rem; margin-bottom: .25rem; font-family: var(--pico-font-family-sans-serif); }
+.chapter-body { font-size: var(--reader-size); line-height: var(--reader-leading); text-align: var(--reader-align); hyphens: auto; overflow-wrap: break-word; }
+[data-reader-font="serif"] .chapter { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Noto Serif", serif; }
+.chapter-body p { margin-bottom: 1em; }
+.chapter-body img { max-width: 100%; height: auto; }
+.chapter-body table { font-size: .9em; }
+.chapter-foot { margin-top: 3rem; overflow-wrap: anywhere; }
+.chapter-nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 2rem; }
+.chapter-nav [role="button"] { min-width: 8rem; text-align: center; }
