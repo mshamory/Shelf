@@ -49,3 +49,45 @@ def test_parse_wacz(tmp_path, with_index, with_pages):
     assert [c.title for c in parsed.chapters][0] == "Chapter 1"
     assert parsed.metadata is not None and parsed.metadata.title == "The Sample Novel"
     assert parsed.cover is not None and parsed.cover[1] == "image/jpeg"
+
+
+CHALLENGE = (b"<html><head><title>Just a moment...</title></head>"
+             b"<body>Checking your browser</body></html>")
+
+
+def test_post_replays_and_challenges(tmp_path):
+    """ArchiveWeb.page POST captures and Cloudflare challenges (regression)."""
+    from .conftest import write_wacz
+
+    html = "text/html; charset=utf-8"
+    base = "https://example.com/novel/chapter-"
+    records = [
+        # Captured via POST: index has the plain URL, pages.jsonl the __wb_method form.
+        {"url": base + "1/", "status": 200, "body": chapter_html(1).encode(), "ctype": html,
+         "method": "POST"},
+        # Challenge token in the original URL.
+        {"url": base + "2/?__cf_chl_f_tk=XYZ", "status": 200, "body": chapter_html(2).encode(),
+         "ctype": html, "method": "POST"},
+        # Challenge (403 POST) first, real page later via GET.
+        {"url": base + "3/", "status": 403, "body": CHALLENGE, "ctype": html, "method": "POST",
+         "ts": "20260101000010"},
+        {"url": base + "3/", "status": 200, "body": chapter_html(3).encode(), "ctype": html,
+         "ts": "20260101000020"},
+        # Part two of a chapter.
+        {"url": base + "3-2/", "status": 200,
+         "body": chapter_html(3).replace("Chapter 3:", "Chapter 3-2:").replace(
+             "End of chapter 3.", "End of chapter 3, part 2.").encode(), "ctype": html},
+    ]
+    pages = [
+        {"url": base + "1/?__wb_method=POST&tok=abc", "title": "Chapter 1: Night Train"},
+        {"url": base + "2/?__cf_chl_f_tk=XYZ&__wb_method=POST&a=b&c=d", "title": "Chapter 2"},
+        {"url": base + "3/?__wb_method=POST&a=b", "title": "Just a moment..."},
+        {"url": base + "3/", "title": "Just a moment..."},
+        {"url": base + "3-2/", "title": "Chapter 3-2: Night Train"},
+    ]
+    parsed = parse_wacz(write_wacz(tmp_path / "post.wacz", records, pages))
+    assert [c.number for c in parsed.chapters] == [1, 2, 3, 3.002]
+    assert "End of chapter 3." in parsed.chapters[2].html
+    assert parsed.chapters[2].url == base + "3/"
+    assert parsed.chapters[2].title.startswith("Chapter 3")
+    assert parsed.skipped == []

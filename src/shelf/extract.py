@@ -34,7 +34,8 @@ TITLE_SEPARATORS = re.compile(r"\s+[|–—\-:»·]\s+")
 # "Chapter 12", "Ch. 12.5", "Ep 3", "第12章", "c12", "/chapter-12/"
 _NUM = r"(\d+(?:\.\d+)?)"
 CHAPTER_PATTERNS = [
-    re.compile(rf"\b(?:chapter|chap|ch|episode|ep|part)\s*[.#:\-]?\s*{_NUM}", re.I),
+    # In titles, "Chapter 207-2" is part 2 of chapter 207.
+    re.compile(rf"\b(?:chapter|chap|ch|episode|ep|part)\s*[.#:\-]?\s*{_NUM}(?:-(\d{{1,2}})\b)?", re.I),
     re.compile(rf"第\s*{_NUM}\s*[章话話回]"),
     re.compile(rf"(?:^|[/\-_])(?:c|ch|chapter|episode|ep)[\-_]?{_NUM}(?:[/\-_.]|$)", re.I),
 ]
@@ -135,9 +136,11 @@ def chapter_number(*candidates: str) -> float | None:
             m = pat.search(cand)
             if m:
                 try:
-                    return float(m.group(1))
+                    number = float(m.group(1))
                 except ValueError:
                     continue
+                part = m.group(2) if pat.groups > 1 else None
+                return number + int(part) / 1000 if part else number
     return None
 
 

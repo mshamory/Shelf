@@ -34,11 +34,14 @@ from .novelupdates import (
     looks_like_series_page,
     parse_series_page,
 )
-from .wacz import WaczFile
+from .wacz import Page, WaczFile, normalize_url
 
 log = logging.getLogger("shelf.library")
 
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
+
+# Bump when extraction changes so existing archives are re-imported on the next scan.
+EXTRACTOR_VERSION = "2"
 
 
 @dataclass
@@ -50,17 +53,54 @@ class ParsedArchive:
     skipped: list[str] = field(default_factory=list)
 
 
+def _page_from_capture(
+    w: WaczFile, url: str, listed_title: str
+) -> tuple[str, str, int, str] | None | str:
+    """Find a capture of `url` that holds real chapter content.
+
+    Returns (title, content_html, text_length, timestamp), the raw HTML of a NovelUpdates
+    series page (as a str), or None. Captures are tried best-first, so a Cloudflare
+    challenge recorded for one request doesn't hide a good capture from another.
+    """
+    for entry in w.captures(url):
+        if entry.mime not in HTML_MIMES:
+            continue
+        resp = w.read(entry)
+        if resp is None or resp.mime not in HTML_MIMES:
+            continue
+        html = decode_html(resp.body, resp.headers.get("content-type", ""))
+        if looks_like_series_page(html):
+            return html
+        own_title = page_title(html)
+        # Judge the response by its own title: pages.jsonl titles can be stale
+        # (e.g. "Just a moment..." recorded before a challenge resolved).
+        if is_error_page(own_title, resp.status):
+            continue
+        content = extract_content(html, url)
+        n = text_length(content) if content else 0
+        if not content or n < MIN_CHAPTER_CHARS:
+            continue
+        title = listed_title if listed_title and not is_error_page(listed_title, 200) else ""
+        return (title or own_title or url), content, n, entry.timestamp
+    return None
+
+
 def parse_wacz(path: Path) -> ParsedArchive:
     with WaczFile(path) as w:
-        pages = w.pages()
-        page_urls = [p.url for p in pages]
-        if not page_urls:  # no page list: consider every captured HTML document
-            page_urls = [
-                u for u in w.urls()
-                if (c := w.best_capture(u)) and c.mime in ("text/html", "application/xhtml+xml")
-            ]
-        titles = {p.url: p.title for p in pages}
-        timestamps = {p.url: p.ts for p in pages}
+        # One candidate per page, keyed by normalised URL (POST replays, challenge tokens…).
+        candidates: dict[str, Page] = {}
+        for page in w.pages():
+            key = normalize_url(page.url)
+            prev = candidates.get(key)
+            if prev is None:
+                candidates[key] = Page(url=key, title=page.title, ts=page.ts)
+            elif is_error_page(prev.title, 200) and not is_error_page(page.title, 200):
+                prev.title = page.title
+        if not candidates:  # no page list: consider every captured HTML document
+            for u in w.urls():
+                c = w.best_capture(u)
+                if c and c.mime in ("text/html", "application/xhtml+xml"):
+                    candidates[u] = Page(url=u)
 
         metadata: NovelMetadata | None = None
         nu_urls = [u for u in w.urls() if is_series_url(u)]
@@ -75,30 +115,21 @@ def parse_wacz(path: Path) -> ParsedArchive:
 
         chapters: list[ExtractedChapter] = []
         skipped: list[str] = []
-        for url in page_urls:
-            if is_series_url(url) or url in nu_urls:
+        for url, page in candidates.items():
+            if is_series_url(url):
                 continue
-            entry = w.best_capture(url)
-            resp = w.read(entry) if entry else None
-            if resp is None or resp.mime not in HTML_MIMES:
+            found = _page_from_capture(w, url, page.title)
+            if isinstance(found, str):
+                if metadata is None:
+                    try:
+                        metadata = parse_series_page(found, url)
+                    except MetadataError:
+                        pass
+                continue
+            if found is None:
                 skipped.append(url)
                 continue
-            html = decode_html(resp.body, resp.headers.get("content-type", ""))
-            if metadata is None and looks_like_series_page(html):
-                try:
-                    metadata = parse_series_page(html, url)
-                    continue
-                except MetadataError:
-                    pass
-            title = titles.get(url) or page_title(html) or url
-            if is_error_page(title, resp.status):
-                skipped.append(url)
-                continue
-            content = extract_content(html, url)
-            n = text_length(content) if content else 0
-            if not content or n < MIN_CHAPTER_CHARS:
-                skipped.append(url)
-                continue
+            title, content, n, captured = found
             chapters.append(
                 ExtractedChapter(
                     url=url,
@@ -106,7 +137,7 @@ def parse_wacz(path: Path) -> ParsedArchive:
                     html=content,
                     text_length=n,
                     number=chapter_number(title, url_path_text(url)),
-                    ts=timestamps.get(url) or (entry.timestamp if entry else ""),
+                    ts=page.ts or captured,
                 )
             )
 
@@ -259,6 +290,12 @@ def scan_library(force: bool = False) -> None:
         return  # a scan is already running
     try:
         settings.library_dir.mkdir(parents=True, exist_ok=True)
+        version_file = settings.data_dir / "extractor-version"
+        try:
+            outdated = version_file.read_text().strip() != EXTRACTOR_VERSION
+        except FileNotFoundError:
+            outdated = True
+        force = force or outdated
         files = sorted(p for p in settings.library_dir.rglob("*.wacz") if p.is_file())
         scan_status.running, scan_status.done, scan_status.total = True, 0, len(files)
         scan_status.errors = []
@@ -283,6 +320,7 @@ def scan_library(force: bool = False) -> None:
                         (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
                     session.delete(novel)
             session.commit()
+        version_file.write_text(EXTRACTOR_VERSION)
     finally:
         scan_status.running = False
         scan_status.current = ""

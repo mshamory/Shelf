@@ -20,6 +20,7 @@ import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from warcio.archiveiterator import ArchiveIterator
 
@@ -49,6 +50,28 @@ class Response:
     mime: str
     body: bytes
     headers: dict[str, str] = field(default_factory=dict)
+
+
+def normalize_url(url: str) -> str:
+    """Strip replay/challenge artefacts so all captures of a page share one key.
+
+    ArchiveWeb.page records a POST as ``url?__wb_method=POST&<form body>`` in pages.jsonl
+    while the index stores the plain URL (with ``method``/``requestBody`` fields). Pages
+    reached through a Cloudflare challenge also gain ``__cf_chl_*`` tokens. Neither is part
+    of the page's identity.
+    """
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    kept = []
+    for param in parts.query.split("&"):
+        name = param.split("=", 1)[0]
+        if name == "__wb_method":
+            break  # everything after this is the replayed request body
+        if name.startswith("__cf_chl"):
+            continue
+        kept.append(param)
+    return urlunsplit(parts._replace(query="&".join(kept)))
 
 
 def _decode_cdx_line(line: str) -> CdxEntry | None:
@@ -143,13 +166,13 @@ class WaczFile:
             yield from data.decode("utf-8", errors="replace").splitlines()
 
     def index(self) -> dict[str, list[CdxEntry]]:
-        """Map of URL -> captures (sorted oldest first)."""
+        """Map of normalised URL -> captures (any HTTP method, sorted oldest first)."""
         if self._index is None:
             idx: dict[str, list[CdxEntry]] = {}
             for line in self._index_lines():
                 entry = _decode_cdx_line(line)
                 if entry and entry.url:
-                    idx.setdefault(entry.url, []).append(entry)
+                    idx.setdefault(normalize_url(entry.url), []).append(entry)
             if not idx:
                 idx = self._scan_warcs()
             for entries in idx.values():
@@ -184,7 +207,7 @@ class WaczFile:
                         mime = rec.rec_headers.get_header("Content-Type") or ""
                     offset = it.get_record_offset()
                     rec.content_stream().read()  # advance so the length is known
-                    idx.setdefault(url, []).append(
+                    idx.setdefault(normalize_url(url), []).append(
                         CdxEntry(
                             url=url,
                             timestamp=ts,
@@ -200,13 +223,19 @@ class WaczFile:
     def urls(self) -> list[str]:
         return list(self.index().keys())
 
+    def captures(self, url: str) -> list[CdxEntry]:
+        """Captures of a URL, best first: successful ones newest first, then the rest."""
+        entries = [
+            e for e in self.index().get(normalize_url(url), []) if e.mime != "warc/revisit"
+        ]
+        ok = [e for e in entries if 200 <= e.status < 300]
+        rest = [e for e in entries if not 200 <= e.status < 300]
+        return ok[::-1] + rest[::-1]
+
     def best_capture(self, url: str) -> CdxEntry | None:
         """The newest successful capture of a URL (or newest of any status)."""
-        entries = [e for e in self.index().get(url, []) if e.mime != "warc/revisit"]
-        if not entries:
-            return None
-        ok = [e for e in entries if 200 <= e.status < 300]
-        return (ok or entries)[-1]
+        entries = self.captures(url)
+        return entries[0] if entries else None
 
     # -- records ----------------------------------------------------------
 
