@@ -29,7 +29,7 @@
 </header>
 {% endblock %}
 {% block content %}
-<article class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-resume="{{ resume }}">
+<div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-resume="{{ resume }}">
   <header>
     <p class="muted chapter-meta">Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
     <h1>{{ chapter.title }}</h1>
@@ -38,7 +38,7 @@
   <footer class="chapter-foot">
     <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at[:10] }}{% endif %}</small>
   </footer>
-</article>
+</div>
 <nav class="chapter-nav">
   {% if prev_id %}<a role="button" class="secondary outline" href="/chapter/{{ prev_id }}" rel="prev">← Previous</a>{% else %}<span></span>{% endif %}
   <a href="/novel/{{ novel.id }}">Contents</a>

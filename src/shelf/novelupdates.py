@@ -14,7 +14,8 @@ from dataclasses import asdict, dataclass, field
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from selectolax.lexbor import LexborHTMLParser as HTMLParser, LexborNode as Node
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
+from selectolax.lexbor import LexborNode as Node
 
 from . import __version__
 from .extract import sanitize

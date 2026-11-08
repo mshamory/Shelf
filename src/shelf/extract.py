@@ -171,7 +171,26 @@ def strip_common_affixes(titles: list[str]) -> list[str]:
         if prefix and len(parts) > 1 and parts[0] == prefix and not chapter_number(prefix):
             t = t[len(prefix):].lstrip(" |–—-:»·")
         out.append(t.strip() or "Untitled")
-    return out
+    return _strip_shared_suffix(out)
+
+
+def _strip_shared_suffix(titles: list[str]) -> list[str]:
+    """Drop a series name repeated after every chapter label ("Ch 3: Series" -> "Ch 3")."""
+    if len(titles) < 2:
+        return titles
+    suffix = titles[0]
+    for t in titles[1:]:
+        while suffix and not t.endswith(suffix):
+            suffix = suffix[1:]
+    # Only cut at a separator so we never split words, and keep something meaningful.
+    m = re.search(r"\s*[:|–—\-]\s+(?=\S)", suffix)
+    if not m or len(suffix) - m.end() < 4:
+        return titles
+    suffix = suffix[m.start():]
+    stripped = [t[: -len(suffix)].rstrip(" |–—-:") for t in titles]
+    if all(chapter_number(s) is not None for s in stripped):
+        return stripped
+    return titles
 
 
 def order_chapters(chapters: list[ExtractedChapter]) -> list[ExtractedChapter]:

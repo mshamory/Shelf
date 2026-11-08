@@ -17,9 +17,9 @@ import gzip
 import io
 import json
 import zipfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from warcio.archiveiterator import ArchiveIterator
 
@@ -87,7 +87,7 @@ class WaczFile:
     def close(self) -> None:
         self._zip.close()
 
-    def __enter__(self) -> "WaczFile":
+    def __enter__(self) -> WaczFile:
         return self
 
     def __exit__(self, *exc) -> None:

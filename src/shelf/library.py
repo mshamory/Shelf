@@ -118,7 +118,7 @@ def parse_wacz(path: Path) -> ParsedArchive:
                 seen[key] = c
         chapters = list(seen.values())
 
-        for c, t in zip(chapters, strip_common_affixes([c.title for c in chapters])):
+        for c, t in zip(chapters, strip_common_affixes([c.title for c in chapters]), strict=True):
             c.title = t
 
         cover = None

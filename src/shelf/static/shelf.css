@@ -101,3 +101,6 @@ body { background: var(--pico-background-color); }
 .chapter-foot { margin-top: 3rem; overflow-wrap: anywhere; }
 .chapter-nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 2rem; }
 .chapter-nav [role="button"] { min-width: 8rem; text-align: center; }
+.toolbar .filter select { flex: 0 0 11rem; }
+.cover-link, .cover-link:hover { text-decoration: none; }
+.chapter > header { margin-bottom: 0; }
