@@ -131,8 +131,9 @@
       {% endif %}
       {% set reasons = gaps|map(attribute='reason')|list %}
       {% if 'encrypted' in reasons %}
-      The site sends some chapters encrypted and decrypts them in the browser, so the archive
-      only holds the encrypted text; Shelf doesn't decrypt it.
+      The site sends some chapters encrypted and decrypts them in the browser. Shelf reads the
+      text the browser displayed while recording, but these chapters were never displayed in full;
+      open each one (and let it load) while recording to capture it.
       {% endif %}
       {% if 'locked' in reasons %}Locked chapters have to be unlocked before they're captured.{% endif %}
       Capture missing chapters and re-import the archive to fill the gaps.</small></p>

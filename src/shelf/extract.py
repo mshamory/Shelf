@@ -150,9 +150,12 @@ def remove_hidden(html: str) -> str:
         etree.tostring(c, encoding="unicode", method="html") for c in root)
 
 
-# Runs of zero-width characters are invisible fingerprints some sites weave into the text.
-# Single ones are legitimate (emoji sequences, some scripts), so only runs are removed.
-ZERO_WIDTH_RUN_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]{3,}")
+# Invisible watermarks: runs of zero-width characters, variation selectors (U+FE00–FE0F,
+# U+E0100–E01EF) or tag characters (U+E0000–E007F). Single ones are kept (emoji use them).
+ZERO_WIDTH_RUN_RE = re.compile(
+    "[\u200b\u200c\u200d\u2060\ufeff\ufe00-\ufe0f\U000e0000-\U000e007f"
+    "\U000e0100-\U000e01ef]{3,}"
+)
 
 
 def sanitize(html: str) -> str:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 REASONS = {
     "": "not captured",
-    "encrypted": "captured only in encrypted form",
+    "encrypted": "captured only in encrypted form, never displayed",
     "locked": "locked; only a preview was captured",
     "preview": "only a preview was captured",
 }

@@ -150,6 +150,24 @@ class WaczFile:
                     out.append(Page(url=url, title=d.get("title") or "", ts=d.get("ts") or ""))
         return out
 
+    def page_texts(self) -> Iterator[tuple[str, str, str]]:
+        """(url, timestamp, text) for every page entry with rendered text.
+
+        ArchiveWeb.page and Browsertrix store the text the browser displayed (after scripts
+        ran) in pages.jsonl. A URL can appear more than once with different text.
+        """
+        for name in ("pages/pages.jsonl", "pages/extraPages.jsonl"):
+            if name not in self._names:
+                continue
+            with self._zip.open(name) as fh:
+                for raw in io.TextIOWrapper(fh, encoding="utf-8", errors="replace"):
+                    try:
+                        d = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(d.get("text"), str) and d.get("url"):
+                        yield d["url"], d.get("ts") or "", d["text"]
+
     # -- index ------------------------------------------------------------
 
     def _index_lines(self) -> Iterator[str]:

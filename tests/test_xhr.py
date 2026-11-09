@@ -235,3 +235,62 @@ def test_placeholder_pages_and_unreadable_api_chapters(tmp_path):
     parsed = parse_wacz(write_wacz(tmp_path / "locked.wacz", records, pages))
     assert [c.number for c in parsed.chapters] == [1, 2, 5]
     assert parsed.unreadable == {3: "encrypted", 4: "locked", 6: "locked", 7: "locked"}
+
+
+def test_chapters_from_rendered_page_text(tmp_path):
+    from shelf.rendered import chapters_from_page_texts
+
+    filler = "x9Qz" * 60  # anti-scraping line repeated between paragraphs
+    chrome = ["Reader settings", "Font size", "Sign in to comment"]
+
+    def page_text(*chapters) -> str:
+        lines = ["Series - Site"]
+        for n, paras in chapters:
+            lines += [f"Chapter {n}", "12 min read", f"Chapter {n}: Title {n}"]
+            for p in paras:
+                lines += [filler, p.replace(" ", " ​‌​‍ ", 1)]
+        return "\n".join(lines + chrome + ["Nice chapter!"])
+
+    story = [LONG, "***", LONG.replace("night", "day"), LONG]
+    texts = [
+        ("https://ex.com/s/7", "20260101", page_text((7, story), (8, story))),  # scrolled on
+        ("https://ex.com/s/9", "20260102", page_text((9, story))),
+        ("https://ex.com/s/2", "20260103", page_text()),
+    ]
+    out = chapters_from_page_texts(texts)
+    assert [(c.number, c.url, c.title) for c in out] == [
+        (7, "https://ex.com/s/7", "Chapter 7: Title 7"),
+        (8, "https://ex.com/s/8", "Chapter 8: Title 8"),
+        (9, "https://ex.com/s/9", "Chapter 9: Title 9"),
+    ]
+    body = out[0].html
+    assert body.count("<p>") == 4 and "***" in body  # scene break isn't site chrome
+    assert filler not in body and "​" not in body
+    assert "Reader settings" not in body and "Nice chapter" not in body and "Chapter 8" not in body
+
+    # A sidebar list of other series isn't a chapter, nor is "Ch. 563.1" chapter 563 "1".
+    sidebar = "\n".join(["Ch. 563.1", *[f"Another Series Title Number {i}" for i in range(80)]])
+    assert chapters_from_page_texts([("https://ex.com/s/1", "", sidebar)]) == []
+
+
+def test_rendered_text_fills_encrypted_chapter(tmp_path):
+    html = "text/html; charset=utf-8"
+    base = "https://ex.com/series/s/"
+    placeholder = (b"<html><head><title>Chapter 2</title></head><body><article>"
+                   b"<p>Verifying access\xe2\x80\xa6</p>" + b"<p>Theme settings and colours.</p>" * 8
+                   + b"</article></body></html>")
+    records = [
+        {"url": base + "1", "status": 200, "body": chapter_html(1).encode(), "ctype": html},
+        {"url": base + "2", "status": 200, "body": placeholder, "ctype": html},
+        {"url": base + "3", "status": 200, "body": chapter_html(3).encode(), "ctype": html},
+    ]
+    text = "\n".join(["Chapter 2: The Return", LONG, LONG.replace("night", "dawn"), LONG,
+                      "Comments", "Sign in"])
+    pages = [{"url": base + "1", "title": "Chapter 1"},
+             {"url": base + "2", "title": "Chapter 2", "text": text},
+             {"url": base + "3", "title": "Chapter 3"}]
+    parsed = parse_wacz(write_wacz(tmp_path / "rendered.wacz", records, pages))
+    assert [c.number for c in parsed.chapters] == [1, 2, 3]
+    two = parsed.chapters[1]
+    assert two.url == base + "2" and two.title == "Chapter 2: The Return"
+    assert two.source == "text" and "Verifying" not in two.html

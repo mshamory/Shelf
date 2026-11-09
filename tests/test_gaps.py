@@ -37,7 +37,7 @@ def test_gaps_with_unreadable_reasons_and_trailing_chapters():
     gaps = find_gaps([1, 2, 3, 4, 10], unreadable=unreadable)
     assert [(g.label, g.reason) for g in gaps] == [
         ("5–6", "encrypted"), ("7", ""), ("8", "locked"), ("9", ""), ("12–13", "locked")]
-    assert gaps[0].description == "captured only in encrypted form"
+    assert gaps[0].description == "captured only in encrypted form, never displayed"
     assert reason_counts(gaps)[0] == ("not captured", 2)
 
 

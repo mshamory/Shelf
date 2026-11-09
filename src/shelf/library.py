@@ -40,6 +40,7 @@ from .novelupdates import (
     looks_like_series_page,
     parse_series_page,
 )
+from .rendered import chapters_from_page_texts
 from .wacz import Page, WaczFile, normalize_url
 from .xhr import scan_xhr
 
@@ -48,7 +49,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "5"
+EXTRACTOR_VERSION = "6"
 
 
 @dataclass
@@ -270,6 +271,21 @@ def parse_wacz(path: Path) -> ParsedArchive:
         for c in chapters:
             classify(c, url_path_text(c.url))
         _numbers_from_url_pattern(chapters)
+
+        # Last resort: the text the browser displayed, saved with each page. It holds
+        # chapters whose network responses aren't readable (e.g. encrypted and filled in by
+        # the site's script), so it only fills numbers no other source has.
+        present = {int(c.number) for c in chapters if c.number is not None}
+        taken = {_url_key(c.url) for c in chapters}
+        for r in chapters_from_page_texts(list(w.page_texts())):
+            if int(r.number) in present or _url_key(r.url) in taken:
+                continue
+            c = ExtractedChapter(url=r.url, title=r.title, html=r.html,
+                                 text_length=r.text_length, ts=r.ts, number_hint=r.number,
+                                 source="text")
+            classify(c, url_path_text(c.url))
+            chapters.append(c)
+            present.add(int(r.number))
         # Clean titles per source: page titles share a site format ("Series - Ch 3 - Site"),
         # titles from JSON payloads don't, and mixing them would dilute the vote.
         for source in {c.source for c in chapters}:
