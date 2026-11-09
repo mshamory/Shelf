@@ -44,6 +44,7 @@
       <a href="/novel/{{ novel.id }}" class="card-title">{{ novel.title }}</a>
       {% if novel.authors %}<small class="muted">{{ novel.authors|join(', ') }}</small>{% endif %}
       <small class="muted">{{ counts.get(novel.id, 0) }} chapters
+        {% if missing.get(novel.id) %}· <span class="warn" title="Gaps in chapter numbering">{{ missing[novel.id] }} missing</span>{% endif %}
         {% if novel.import_error %}· <span class="warn">{{ novel.import_error }}</span>{% endif %}</small>
       {% set p = progress.get(novel.id) %}
       {% if p %}

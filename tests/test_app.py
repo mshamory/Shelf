@@ -85,3 +85,17 @@ def test_rescan_removes_deleted_archives(client):
     scan_library()
     assert "/novel/1" not in client.get("/").text
     shutil.rmtree(settings.library_dir)
+
+
+def test_missing_chapters_are_reported(client):
+    from shelf.config import settings
+    from shelf.library import scan_library
+
+    build_wacz(settings.library_dir / "night-train.wacz")  # chapters 1, 2, 3, 10
+    scan_library()
+    assert "6 missing" in client.get("/").text
+    page = client.get("/novel/1").text
+    assert "6 chapters possibly missing" in page
+    assert "Missing: chapters 4–9" in page
+    assert "Chapters 4–9 are not in the archive" in client.get("/chapter/3").text
+    assert "not in the archive" not in client.get("/chapter/2").text

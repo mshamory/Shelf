@@ -104,3 +104,10 @@ body { background: var(--pico-background-color); }
 .toolbar .filter select { flex: 0 0 11rem; }
 .cover-link, .cover-link:hover { text-decoration: none; }
 .chapter > header { margin-bottom: 0; }
+.chapters li.missing { color: var(--pico-del-color, #c0392b); font-style: italic; font-size: .9rem; }
+.chapters li.missing span { border-left: 2px dashed currentColor; padding-left: .5rem; }
+.missing-summary { margin: 1rem 0; padding: .5rem 1rem; border-left: 4px solid var(--pico-del-color, #c0392b);
+  background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); }
+.missing-summary summary { color: var(--pico-del-color, #c0392b); }
+.gap-notice { margin-top: 2rem; padding: .75rem 1rem; font-size: .9rem; border-left: 4px solid var(--pico-del-color, #c0392b);
+  background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); }

@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__
 from .config import settings
 from .db import Chapter, Novel, get_session, init_db, utcnow
+from .gaps import find_gaps, gaps_before, missing_count
 from .library import apply_metadata, import_wacz, scan_status, start_scan
 from .novelupdates import MetadataError, fetch_series, parse_series_page
 
@@ -68,6 +69,16 @@ def visible_chapters(session: Session, novel_id: int, include_hidden: bool = Fal
     return session.exec(q.order_by(Chapter.position)).all()
 
 
+def chapter_numbers(session: Session, novel_id: int | None = None):
+    q = select(Chapter.novel_id, Chapter.number)
+    if novel_id is not None:
+        q = q.where(Chapter.novel_id == novel_id)
+    by_novel: dict[int, list[float | None]] = {}
+    for nid, number in session.exec(q).all():
+        by_novel.setdefault(nid, []).append(number)
+    return by_novel
+
+
 # -- library ---------------------------------------------------------------
 
 
@@ -80,6 +91,8 @@ def library(request: Request, session: SessionDep, q: str = "", sort: str = "rec
             .group_by(Chapter.novel_id)
         ).all()
     )
+    missing = {nid: missing_count(find_gaps(nums))
+               for nid, nums in chapter_numbers(session).items()}
     novels = list(session.exec(select(Novel)).all())
     if q:
         needle = q.lower()
@@ -106,7 +119,7 @@ def library(request: Request, session: SessionDep, q: str = "", sort: str = "rec
         request,
         "library.html",
         {"novels": novels, "counts": counts, "progress": progress, "q": q, "sort": sort,
-         "scan": scan_status},
+         "scan": scan_status, "missing": missing},
     )
 
 
@@ -157,11 +170,15 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         select(func.count(Chapter.id)).where(Chapter.novel_id == novel_id, Chapter.hidden == True)  # noqa: E712
     ).one()
     last = session.get(Chapter, novel.last_chapter_id) if novel.last_chapter_id else None
+    gaps = find_gaps(chapter_numbers(session, novel_id).get(novel_id, []))
+    numbered = [c.number for c in chapters if c.number is not None]
     return templates.TemplateResponse(
         request,
         "novel.html",
         {"novel": novel, "chapters": chapters, "last": last, "show_hidden": hidden,
-         "hidden_count": hidden_count},
+         "hidden_count": hidden_count, "gaps": gaps, "missing_total": missing_count(gaps),
+         "gaps_before": gaps_before(chapters, gaps),
+         "first_number": int(min(numbered)) if numbered else None},
     )
 
 
@@ -269,11 +286,24 @@ def reader(request: Request, session: SessionDep, chapter_id: int):
     prev_id = ids[idx - 1] if idx else None
     next_id = ids[idx + 1] if idx is not None and idx + 1 < len(ids) else None
     resume = novel.last_position if novel.last_chapter_id == ch.id else 0.0
+    # Warn when the next chapter skips numbers (e.g. 128 -> 130).
+    gap_ahead = None
+    if next_id is not None and ch.number is not None:
+        nxt = toc[idx + 1]
+        if nxt.number is not None:
+            gap_ahead = next(
+                (g for g in find_gaps([ch.number, nxt.number])), None
+            )
+            if gap_ahead:
+                present = {int(n) for n in chapter_numbers(session, novel.id)[novel.id]
+                           if n is not None}
+                if all(n in present for n in range(gap_ahead.start, gap_ahead.end + 1)):
+                    gap_ahead = None  # skipped only because those chapters are hidden
     return templates.TemplateResponse(
         request,
         "reader.html",
         {"novel": novel, "chapter": ch, "toc": toc, "index": idx, "prev_id": prev_id,
-         "next_id": next_id, "resume": resume},
+         "next_id": next_id, "resume": resume, "gap_ahead": gap_ahead},
     )
 
 
