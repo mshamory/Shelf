@@ -44,6 +44,14 @@ class Gap:
         return REASONS.get(self.reason, REASONS[""])
 
 
+def covered(number: float | None, end: float | None = None) -> range:
+    """Whole chapter numbers a chapter covers: 12 -> 12; "Chapter 96-97" -> 96, 97."""
+    if number is None or number < 0:
+        return range(0)
+    start = int(number)
+    return range(start, max(start, int(end)) + 1 if end is not None else start + 1)
+
+
 def find_gaps(
     numbers: Iterable[float | None], season: int | None = None, season_label: str = "",
     unreadable: Mapping[int, str] | None = None,
@@ -72,20 +80,22 @@ def find_gaps(
 
 
 def find_season_gaps(
-    rows: Iterable[tuple[int | None, str, float | None]],
+    rows: Iterable[tuple],
     unreadable: Mapping[int, str] | None = None,
 ) -> list[Gap]:
-    """Gaps per season, from (season, season_label, number) rows. Side stories are skipped.
+    """Gaps per season, from (season, season_label, number[, number_end]) rows. Side stories
+    are skipped.
 
     `unreadable` numbers carry no season, so they're used only for a novel without seasons.
     """
     from .extract import SIDE_SEASON
 
     seasons: dict[int | None, tuple[str, list[float | None]]] = {}
-    for season, label, number in rows:
+    for season, label, number, *rest in rows:
         if season == SIDE_SEASON:
             continue
-        seasons.setdefault(season, (label, []))[1].append(number)
+        seasons.setdefault(season, (label, []))[1].extend(
+            covered(number, rest[0] if rest else None) or [number])
     single = list(seasons) == [None]
     gaps: list[Gap] = []
     for season in sorted(seasons, key=lambda s: s or 0):

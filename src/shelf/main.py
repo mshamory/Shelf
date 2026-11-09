@@ -86,7 +86,8 @@ def get_novel(session: Session, novel_id: int) -> Novel:
 
 
 def visible_chapters(session: Session, novel_id: int, include_hidden: bool = False):
-    q = select(Chapter.id, Chapter.position, Chapter.number, Chapter.season,
+    q = select(Chapter.id, Chapter.position, Chapter.number, Chapter.number_end,
+               Chapter.auto_number_end, Chapter.season,
                Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.hidden,
                Chapter.url, Chapter.auto_title, Chapter.auto_number, Chapter.custom_title,
                Chapter.custom_number, Chapter.custom_season,
@@ -98,14 +99,15 @@ def visible_chapters(session: Session, novel_id: int, include_hidden: bool = Fal
 
 def novel_gaps(session: Session, novel_id: int | None = None):
     """Missing-chapter gaps per novel (hidden chapters count as present)."""
-    q = select(Chapter.novel_id, Chapter.season, Chapter.season_label, Chapter.number)
+    q = select(Chapter.novel_id, Chapter.season, Chapter.season_label, Chapter.number,
+               Chapter.number_end)
     nq = select(Novel.id, Novel.unreadable_chapters)
     if novel_id is not None:
         q = q.where(Chapter.novel_id == novel_id)
         nq = nq.where(Novel.id == novel_id)
     rows: dict[int, list] = {}
-    for nid, season, label, number in session.exec(q).all():
-        rows.setdefault(nid, []).append((season, label, number))
+    for nid, season, label, number, end in session.exec(q).all():
+        rows.setdefault(nid, []).append((season, label, number, end))
     unreadable = {nid: {int(k): v for k, v in (u or {}).items()}
                   for nid, u in session.exec(nq).all()}
     return {nid: find_season_gaps(r, unreadable.get(nid)) for nid, r in rows.items()}
@@ -331,22 +333,34 @@ def toggle_hidden(session: SessionDep, chapter_id: int):
     return flash_redirect(f"/novel/{ch.novel_id}?hidden=1#ch-{ch.id}")
 
 
-CHAPTER_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d{1,2}))?\s*$")
+CHAPTER_NUMBER_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d{1,2})|\s*(?:–|—|~|\.\.|to)\s*(\d+))?\s*$", re.I)
 
 
-def parse_chapter_number(text: str) -> float:
-    """'12', '12.5' or '207-2' (part 2 of chapter 207, as the importer numbers it)."""
+def parse_chapter_number(text: str) -> tuple[float, float | None]:
+    """(number, last number covered) from '12', '12.5', '207-2' (part 2 of chapter 207, as
+    the importer numbers it) or '96 to 97' / '96–97' (a post covering chapters 96 and 97)."""
     m = CHAPTER_NUMBER_RE.match(text)
     if not m:
         raise ValueError(text)
     number = float(m.group(1))
-    return number + int(m.group(2)) / 1000 if m.group(2) else number
+    if m.group(2):
+        return number + int(m.group(2)) / 1000, None
+    if m.group(3):
+        end = float(m.group(3))
+        if number != int(number) or end <= number:
+            raise ValueError(text)
+        return number, end
+    return number, None
 
 
-def format_chapter_number(number: float | None) -> str:
-    """Inverse of parse_chapter_number: 207.002 -> '207-2', 12.5 -> '12.5'."""
+def format_chapter_number(number: float | None, end: float | None = None) -> str:
+    """Inverse of parse_chapter_number: 207.002 -> '207-2', 12.5 -> '12.5', (96, 97) ->
+    '96–97'."""
     if number is None:
         return ""
+    if end is not None and end > number:
+        return f"{number:g}–{end:g}"
     part = round((number - int(number)) * 1000)
     if 0 < part < 100 and abs(number - int(number) - part / 1000) < 1e-9:
         return f"{int(number)}-{part}"
@@ -391,13 +405,15 @@ def edit_chapter(
     number = number.strip()
     if number:
         try:
-            value = parse_chapter_number(number)
+            value, end = parse_chapter_number(number)
         except ValueError:
-            return flash_redirect(back, f"“{number}” isn't a chapter number (e.g. 12, 12.5, 207-2)",
-                                  error=True)
-        ch.number, ch.custom_number = value, value != ch.auto_number
+            return flash_redirect(
+                back, f"“{number}” isn't a chapter number (e.g. 12, 12.5, 207-2 or 96 to 97)",
+                error=True)
+        ch.number, ch.number_end = value, end
+        ch.custom_number = (value, end) != (ch.auto_number, ch.auto_number_end)
     else:
-        ch.number, ch.custom_number = ch.auto_number, False
+        ch.number, ch.number_end, ch.custom_number = ch.auto_number, ch.auto_number_end, False
 
     if season == "auto":
         ch.season, ch.season_label, ch.custom_season = (
@@ -687,7 +703,8 @@ def _novel_json(novel: Novel, chapters: int, last: float | None, score: int = 0)
 def api_novels(session: SessionDep, url: str = ""):
     """Novels for the extension's picker; with `url`, best match for that page first."""
     stats = {nid: (n, last) for nid, n, last in session.exec(
-        select(Chapter.novel_id, func.count(Chapter.id), func.max(Chapter.number))
+        select(Chapter.novel_id, func.count(Chapter.id),
+               func.max(func.coalesce(Chapter.number_end, Chapter.number)))
         .group_by(Chapter.novel_id)).all()}
     urls: dict[int, list[str]] = {}
     if url:
@@ -754,6 +771,7 @@ async def api_add_chapter(session: SessionDep, novel_id: int, body: ChapterPaylo
         "replaced_title": result.replaced_title,
         "dry_run": body.dry_run,
         "chapter": {"id": ch.id, "title": ch.title, "number": ch.number,
+                    "number_end": ch.number_end,
                     "season_label": ch.season_label, "chars": ch.char_count,
                     "url": f"/chapter/{ch.id}" if ch.id else None},
         "novel": {"id": novel.id, "title": novel.title, "url": f"/novel/{novel.id}"},

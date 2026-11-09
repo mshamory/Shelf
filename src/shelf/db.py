@@ -61,6 +61,7 @@ class Chapter(SQLModel, table=True):
     novel_id: int = Field(foreign_key="novel.id", index=True)
     position: int = Field(index=True)  # 0-based reading order
     number: float | None = None
+    number_end: float | None = None  # last chapter covered, for "Chapter 96-97"
     season: int | None = None  # set only when numbering restarts per season/part/book
     season_label: str = ""  # "Part 2", "Side stories", ...
     title: str = ""
@@ -78,6 +79,7 @@ class Chapter(SQLModel, table=True):
     # kept here so user edits can be reset; custom_* flags survive re-imports (by URL).
     auto_title: str = ""
     auto_number: float | None = None
+    auto_number_end: float | None = None
     auto_season: int | None = None
     auto_season_label: str = ""
     custom_title: bool = False

@@ -294,3 +294,22 @@ def test_rendered_text_fills_encrypted_chapter(tmp_path):
     two = parsed.chapters[1]
     assert two.url == base + "2" and two.title == "Chapter 2: The Return"
     assert two.source == "text" and "Verifying" not in two.html
+
+
+def test_patreon_posts_with_body_in_content_json_string():
+    def post(n: int, body: str, can_view: bool = True) -> dict:
+        return {"type": "post", "attributes": {
+            "title": f"Chapter {n}: Title {n}", "content": None,
+            "content_json_string": json.dumps(prosemirror(body)),
+            "current_user_can_view": can_view,
+            "url": f"https://www.patreon.com/posts/chapter-{n}-{165000000 + n}"}}
+
+    data = {"data": [post(310, LONG), post(311, "A teaser. " * 40, can_view=False)]}
+    found = list(find_chapter_objects(data))
+    assert [o["title"] for o, _ in found] == ["Chapter 310: Title 310"]
+    assert "endless night" in found[0][1]
+
+    from shelf.xhr import _walk, unavailable_reason
+
+    locked = [o for o, c in _walk(data) if c is None]
+    assert [unavailable_reason(o) for o in locked] == ["locked"]

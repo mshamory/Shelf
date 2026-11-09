@@ -12,8 +12,8 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   scanning the WARCs when there's no index, and to all captured HTML when there's no page list.
 - **Chapters loaded by JavaScript**: chapters fetched by XHR/fetch are found in the
   captured JSON. This covers SvelteKit `__data.json`, Nuxt `_payload.json`, Next.js
-  `_next/data` and plain JSON APIs, with chapter bodies in HTML, plain text, ProseMirror/TipTap
-  or Editor.js format. Hidden anti-scraping text and invisible zero-width watermarks are removed.
+  `_next/data`, Patreon post data and plain JSON APIs, with chapter bodies in HTML, plain text,
+  ProseMirror/TipTap or Editor.js format. Hidden anti-scraping text and invisible zero-width watermarks are removed.
 - **Chapters from the rendered page**: when a chapter's network response isn't readable (e.g.
   the site sends it encrypted and its script fills in the page), Shelf uses the text the
   browser displayed, which ArchiveWeb.page and Browsertrix save with each page. Site menus,
@@ -26,8 +26,11 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   text loaded ("Verifying access…") are skipped.
 - **Chapter extraction**: main-content extraction removes navigation, share buttons, comments
   and so on. Chapters are numbered (`Chapter 12`, `Ch. 7.5`, `第12章`, `/ch-12/` …) and ordered
-  by that number. Error pages, near-empty pages and duplicate captures are skipped, and the
-  site name and series name repeated in every chapter title are removed.
+  by that number. A post covering several chapters (`Chapter 96-97`, `Ch. 7 & 8`) counts for
+  all of them; in novels that number parts as `Chapter 3-1`, `3-2`, a dash means a part.
+  Error pages, near-empty pages and duplicate captures (including a post captured again
+  under a new URL after it was renamed) are skipped, and the site name and series name
+  repeated in every chapter title are removed.
 - **NovelUpdates metadata**: title, cover, description, authors, genres, tags, rating, status,
   associated names, and so on.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment

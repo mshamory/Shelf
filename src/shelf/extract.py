@@ -36,8 +36,12 @@ TITLE_SEPARATORS = re.compile(r"\s+[|–—\-:»·]\s+")
 # "Chapter 12", "Ch. 12.5", "Ep 3", "第12章", "c12", "/chapter-12/"
 _NUM = r"(\d+(?:\.\d+)?)"
 CHAPTER_PATTERNS = [
-    # In titles, "Chapter 207-2" is part 2 of chapter 207.
-    re.compile(rf"\b(?:chapter|chap|ch|episode|ep)\s*[.#:\-]?\s*{_NUM}(?:-(\d{{1,2}})\b)?", re.I),
+    # In titles, "Chapter 207-2" is part 2 of chapter 207 and "Chapter 96-97" (or "Ch. 7 & 8",
+    # "Chapters 7 to 9") covers several chapters; see chapter_span.
+    re.compile(rf"\b(?:chapters?|chaps?|chs?|episodes?|eps?)\s*[.#:\-]?\s*{_NUM}"
+               r"(?:[-~](\d{1,4})\b(?!\.\d)"
+               r"|\s*(?:&|\+|~|\band\b|\bto\b)\s*(?:(?:chapter|ch)\.?\s*)?(\d{1,4})\b(?!\.\d))?",
+               re.I),
     re.compile(rf"第\s*{_NUM}\s*[章话話回]"),
     re.compile(rf"(?:^|[/\-_])(?:c|ch|chapter|episode|ep)[\-_]?{_NUM}(?:[/\-_.]|$)", re.I),
 ]
@@ -81,6 +85,8 @@ class ExtractedChapter:
     season_word: str = ""  # "Part", "Season", "Book", ...
     season_label: str = ""  # final grouping label ("Part 2"); empty when not split
     number_hint: float | None = None  # number from structured data (e.g. an XHR payload)
+    number_end: float | None = None  # last chapter covered by a "Chapter 96-97" post
+    range_kind: str = ""  # see ChapterSpan
     source: str = "html"  # "html" page or "xhr" JSON payload
 
 
@@ -249,20 +255,60 @@ def page_title(html: str) -> str:
     return node.text(strip=True) if node else ""
 
 
-def chapter_number(*candidates: str) -> float | None:
+# A range wider than this is more likely a typo or a compilation than one post.
+MAX_RANGE_SPAN = 20
+
+
+@dataclass(frozen=True)
+class ChapterSpan:
+    number: float
+    end: float | None = None  # last chapter covered, for "Chapter 96-97"
+    # "dash" when the range came from "N-M", which some novels use for parts ("Chapter 3-4"
+    # = part 4 of chapter 3); "word" for "N & M", "N to M", which are always ranges.
+    range_kind: str = ""
+
+    def as_part(self) -> ChapterSpan:
+        """Read a dash range as a part instead: 3-4 -> 3.004."""
+        if self.range_kind != "dash" or self.end is None or self.end > 99:
+            return self
+        return ChapterSpan(self.number + int(self.end) / 1000)
+
+
+def _span(m: re.Match, pat: re.Pattern) -> ChapterSpan | None:
+    try:
+        number = float(m.group(1))
+    except ValueError:
+        return None
+    dash = m.group(2) if pat.groups > 1 else None
+    word = m.group(3) if pat.groups > 2 else None
+    second = dash or word
+    if second is None:
+        return ChapterSpan(number)
+    end = int(second)
+    if number == int(number) and number < end <= number + MAX_RANGE_SPAN:
+        return ChapterSpan(number, float(end), "dash" if dash else "word")
+    if dash and len(dash) <= 2 and end <= number:
+        return ChapterSpan(number + end / 1000)  # part
+    return ChapterSpan(number)
+
+
+def chapter_span(*candidates: str) -> ChapterSpan | None:
+    """The chapter (or range of chapters) named by the first candidate that names one."""
     for cand in candidates:
         if not cand:
             continue
         for pat in CHAPTER_PATTERNS:
             m = pat.search(cand)
             if m:
-                try:
-                    number = float(m.group(1))
-                except ValueError:
-                    continue
-                part = m.group(2) if pat.groups > 1 else None
-                return number + int(part) / 1000 if part else number
+                span = _span(m, pat)
+                if span is not None:
+                    return span
     return None
+
+
+def chapter_number(*candidates: str) -> float | None:
+    span = chapter_span(*candidates)
+    return span.number if span else None
 
 
 def _chapter_match(text: str):
@@ -304,8 +350,13 @@ def side_story_number(title: str) -> float | None | bool:
 
 def classify(chapter: ExtractedChapter, path_text: str) -> None:
     """Fill in number/season for a chapter from its title and URL path."""
-    chapter.number = chapter_number(chapter.title, path_text)
+    span = chapter_span(chapter.title, path_text)
+    chapter.number = span.number if span else None
+    chapter.number_end = span.end if span else None
+    chapter.range_kind = span.range_kind if span else ""
     if chapter.number_hint is not None:
+        if chapter.number_hint != chapter.number:
+            chapter.number_end, chapter.range_kind = None, ""
         chapter.number = chapter.number_hint
     if chapter.number is not None:
         season = chapter_season(chapter.title, path_text)

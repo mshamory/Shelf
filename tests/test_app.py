@@ -166,6 +166,17 @@ def test_edit_chapter_title_and_number(client):
     client.post("/chapter/3/edit", data={"number": "1-2"})
     assert order() == [1, 3, 4, 2]  # 1.002 sorts right after chapter 1
 
+    # A post covering several chapters closes the gap it spans.
+    # (Present now: 1, 1-2 and 11, so 2-10 are missing.)
+    assert "Missing: chapters 2–9" in client.get("/novel/1").text
+    client.post("/chapter/4/edit", data={"number": "3 to 10"})
+    page = client.get("/novel/1?hidden=1").text
+    assert "#3–10" in page and "Missing: chapter 2 " in page and "chapters 2–" not in page
+    client.post("/chapter/4/edit", data={"number": ""})
+    assert "Missing: chapters 2–9" in client.get("/novel/1").text
+    r = client.post("/chapter/4/edit", data={"number": "9 to 3"})
+    assert "a chapter number (e.g. 12" in r.text
+
     # Edits survive a forced re-import (matched by URL).
     with Session(get_engine()) as session:
         import_wacz(session, path, force=True)

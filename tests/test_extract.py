@@ -147,3 +147,51 @@ def test_volumes_with_continuous_numbering_stay_one_list():
     ordered = order_chapters(chs)
     assert [c.number for c in ordered] == [1, 2, 2, 3]
     assert {c.season_label for c in ordered} == {""} and {c.season for c in ordered} == {None}
+
+
+def test_chapter_ranges_and_parts():
+    from shelf.extract import ChapterSpan, chapter_number, chapter_span
+
+    assert chapter_span("Chapter 96-97: The Small Stronghold") == ChapterSpan(96, 97, "dash")
+    assert chapter_span("Ch. 7 & 8") == ChapterSpan(7, 8, "word")
+    assert chapter_span("Chapters 7 to 9: Away") == ChapterSpan(7, 9, "word")
+    assert chapter_span("Volume 1, Chapter 207-2 – Title") == ChapterSpan(207.002)
+    assert chapter_span("Chapter 250 – 3 Days (1)") == ChapterSpan(250)  # a title, not a range
+    assert chapter_span("Chapter 1-100") == ChapterSpan(1)  # too wide for one post
+    assert chapter_number("Chapter 96-97") == 96
+    assert ChapterSpan(3, 4, "dash").as_part() == ChapterSpan(3.004)
+    assert ChapterSpan(7, 8, "word").as_part() == ChapterSpan(7, 8, "word")
+
+
+def test_dash_ranges_are_parts_in_novels_that_number_parts():
+    from shelf.extract import ExtractedChapter, classify
+    from shelf.library import resolve_ranges
+
+    def chapters(*titles):
+        out = [ExtractedChapter(url=f"https://ex.com/{i}", title=t, html="", text_length=0)
+               for i, t in enumerate(titles)]
+        for c in out:
+            classify(c, "")
+        resolve_ranges(out)
+        return [(c.number, c.number_end) for c in out]
+
+    assert chapters("Chapter 2", "Chapter 3-4", "Chapter 5") == [(2, None), (3, 4), (5, None)]
+    assert chapters("Chapter 3-1", "Chapter 3-2", "Chapter 3-3") == [
+        (3.001, None), (3.002, None), (3.003, None)]
+    assert chapters("Chapter 3-1", "Chapter 4 & 5") == [(3.001, None), (4, 5)]
+
+
+def test_renamed_post_captured_twice_is_kept_once():
+    from shelf.extract import ExtractedChapter, classify
+    from shelf.library import drop_renamed_duplicates
+
+    base = "https://www.patreon.com/Author/posts/"
+    rows = [("chapter-692-dual-165442119", "Chapter 692: Dual", "20260101"),
+            ("chapter-692-form-165442119", "Chapter 692: Form", "20260201"),
+            ("chapter-693-165442200", "Chapter 693", "20260101")]
+    chapters = [ExtractedChapter(url=base + slug, title=t, html="", text_length=0, ts=ts)
+                for slug, t, ts in rows]
+    for c in chapters:
+        classify(c, "")
+    assert [c.title for c in drop_renamed_duplicates(chapters)] == [
+        "Chapter 692: Form", "Chapter 693"]

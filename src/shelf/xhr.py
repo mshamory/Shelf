@@ -31,8 +31,10 @@ from .wacz import WaczFile
 
 log = logging.getLogger("shelf.xhr")
 
+# Patreon posts carry the body as a ProseMirror document in a JSON string, "content_json_string".
 CONTENT_KEYS = ("content", "content_html", "contentHtml", "html", "body", "body_html",
-                "bodyHtml", "chapter_content", "chapterContent", "text")
+                "bodyHtml", "chapter_content", "chapterContent", "content_json_string",
+                "content_json", "contentJson", "text")
 TITLE_KEYS = ("title", "chapter_title", "chapterTitle", "name", "chapter_name", "chapterName")
 NUMBER_KEYS = ("number", "chapter_number", "chapterNumber", "chapter_no", "chapterNo", "num")
 URL_KEYS = ("url", "link", "permalink", "canonical_url")
@@ -327,7 +329,7 @@ def unavailable_reason(obj: dict) -> str:
             isinstance(content, list) and content and all(isinstance(x, str) for x in content)):
         return "encrypted"
     locked = obj.get("locked", obj.get("is_locked"))
-    if fmt == "locked" or locked is True or (
+    if fmt == "locked" or locked is True or obj.get("current_user_can_view") is False or (
             isinstance(locked, dict) and (locked.get("price") or 0) > 0
             and not locked.get("unlocked_at")):
         return "locked"

@@ -18,6 +18,7 @@ from .db import BROWSER_PREFIX, Chapter, Novel, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     SIDE_SEASON,
+    ChapterSpan,
     ExtractedChapter,
     chapter_number,
     classify,
@@ -29,8 +30,10 @@ from .extract import (
     text_length,
     url_path_text,
 )
+from .gaps import covered
 from .library import (
     BARE_TITLE_RE,
+    _is_part,
     _promote_heading,
     _strip_series_prefix,
     _url_key,
@@ -129,17 +132,27 @@ def _save_raw(novel_id: int, html: str) -> str:
     return str((folder / name).relative_to(folder.parent.parent))
 
 
+def _fit_range(ec: ExtractedChapter, existing: list[Chapter]) -> None:
+    """"Chapter 3-4" is part 4 of chapter 3 in a novel that numbers parts that way."""
+    if ec.range_kind == "dash" and any(c.number is not None and _is_part(c.number)
+                                       for c in existing):
+        span = ChapterSpan(ec.number, ec.number_end, ec.range_kind).as_part()
+        ec.number, ec.number_end, ec.range_kind = span.number, span.end, span.range_kind
+
+
 def find_target(chapters: list[Chapter], url: str, number: float | None,
-                season: int | None) -> Chapter | None:
-    """The existing chapter a capture replaces: same URL, else same number and season."""
+                season: int | None, number_end: float | None = None) -> Chapter | None:
+    """The existing chapter a capture replaces: same URL, else a chapter with one of its
+    numbers in the same season."""
     key = _url_key(url)
     for c in chapters:
         if _url_key(c.url) == key:
             return c
-    if number is not None:
+    wanted = set(covered(number, number_end))
+    if wanted:
         for c in chapters:
-            if c.number is not None and int(c.number) == int(number) and (
-                    (c.season or 0) == (season or 0)):
+            if (c.season or 0) == (season or 0) and wanted & set(
+                    covered(c.number, c.number_end)):
                 return c
     return None
 
@@ -148,12 +161,15 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
                 number: float | None = None, dry_run: bool = False) -> CaptureResult:
     existing = list(novel.chapters)
     ec = extract_page(url, html, novel.title)
+    _fit_range(ec, existing)
     if number is not None:
+        if number != ec.number:
+            ec.number_end = None
         ec.number = number
     season, label = _season_for(ec, existing)
     custom_title = bool(title.strip())
     final_title = title.strip() or ec.title
-    target = find_target(existing, ec.url, ec.number, season)
+    target = find_target(existing, ec.url, ec.number, season, ec.number_end)
     action = "added" if target is None else (
         "updated" if target.origin == "browser" else "replaced")
 
@@ -163,7 +179,8 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
         ch = target
     replaced_title = target.title if target is not None else ""
     if dry_run:
-        preview = Chapter(novel_id=novel.id, position=0, number=ec.number, season=season,
+        preview = Chapter(novel_id=novel.id, position=0, number=ec.number,
+                          number_end=ec.number_end, season=season,
                           season_label=label, title=final_title, url=ec.url,
                           content_html=ec.html, char_count=ec.text_length, origin="browser")
         return CaptureResult(preview, action, replaced_title)
@@ -173,12 +190,12 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
     ch.captured_at = utcnow().strftime("%Y%m%d%H%M%S")
     ch.origin = "browser"
     ch.capture_file = _save_raw(novel.id, html)
-    ch.auto_title, ch.auto_number = ec.title, ec.number
+    ch.auto_title, ch.auto_number, ch.auto_number_end = ec.title, ec.number, ec.number_end
     ch.auto_season, ch.auto_season_label = season, label
     if custom_title or not ch.custom_title:
         ch.title, ch.custom_title = final_title, custom_title
     if not ch.custom_number:
-        ch.number = ec.number
+        ch.number, ch.number_end = ec.number, ec.number_end
         ch.custom_number = number is not None
     if not ch.custom_season:
         ch.season, ch.season_label = season, label
@@ -187,8 +204,9 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
         existing.append(ch)
     resequence(existing)
     if ch.number is not None and novel.unreadable_chapters:
+        filled = set(covered(ch.number, ch.number_end))
         novel.unreadable_chapters = {k: v for k, v in novel.unreadable_chapters.items()
-                                     if int(k) != int(ch.number)}
+                                     if int(k) not in filled}
     novel.import_error = None
     session.commit()
     session.refresh(ch)
@@ -260,14 +278,16 @@ def refresh_captures(session: Session, novel: Novel) -> int:
             ec = extract_page(ch.url, html, novel.title)
         except (OSError, CaptureError):
             continue
-        season, label = _season_for(ec, [c for c in chapters if c is not ch])
+        others = [c for c in chapters if c is not ch]
+        _fit_range(ec, others)
+        season, label = _season_for(ec, others)
         ch.content_html, ch.char_count = ec.html, ec.text_length
-        ch.auto_title, ch.auto_number = ec.title, ec.number
+        ch.auto_title, ch.auto_number, ch.auto_number_end = ec.title, ec.number, ec.number_end
         ch.auto_season, ch.auto_season_label = season, label
         if not ch.custom_title:
             ch.title = ec.title
         if not ch.custom_number:
-            ch.number = ec.number
+            ch.number, ch.number_end = ec.number, ec.number_end
         if not ch.custom_season:
             ch.season, ch.season_label = season, label
         updated += 1

@@ -19,6 +19,7 @@ from .db import BROWSER_PREFIX, Chapter, Novel, get_engine, has_archive, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     SIDE_SEASON,
+    ChapterSpan,
     ExtractedChapter,
     chapter_number,
     classify,
@@ -32,6 +33,7 @@ from .extract import (
     text_length,
     url_path_text,
 )
+from .gaps import covered
 from .novelupdates import (
     MetadataError,
     NovelMetadata,
@@ -49,7 +51,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "7"
+EXTRACTOR_VERSION = "8"
 
 
 @dataclass
@@ -182,6 +184,47 @@ def _numbers_from_url_pattern(chapters: list[ExtractedChapter]) -> None:
                     c.title = f"Chapter {last}"  # the page title was generic
 
 
+def _is_part(number: float) -> bool:
+    """207.002 ("Chapter 207-2"), not 12.5."""
+    part = round((number - int(number)) * 1000)
+    return 0 < part < 100 and abs(number - int(number) - part / 1000) < 1e-9
+
+
+def resolve_ranges(chapters: list[ExtractedChapter]) -> None:
+    """"Chapter 3-4" is a range of chapters, unless the novel numbers parts that way
+    ("Chapter 3-1", "Chapter 3-2"): then it's part 4 of chapter 3."""
+    if not any(c.number is not None and _is_part(c.number) for c in chapters):
+        return
+    for c in chapters:
+        if c.range_kind == "dash" and c.number is not None:
+            span = ChapterSpan(c.number, c.number_end, c.range_kind).as_part()
+            c.number, c.number_end, c.range_kind = span.number, span.end, span.range_kind
+
+
+POST_ID_RE = re.compile(r"(?:^|[-_])(\d{6,})$")
+
+
+def _post_key(c: ExtractedChapter) -> tuple | None:
+    parts = urlsplit(c.url)
+    parent, _, last = parts.path.rstrip("/").rpartition("/")
+    m = POST_ID_RE.search(last)
+    if m is None or c.number is None:
+        return None
+    return parts.netloc.lower(), parent, m.group(1), c.season, int(c.number)
+
+
+def drop_renamed_duplicates(chapters: list[ExtractedChapter]) -> list[ExtractedChapter]:
+    """One post captured under two slugs (the author renamed it):
+    /posts/chapter-692-dual-165442119 and /posts/chapter-692-form-165442119. Keeps the
+    newest capture of each post id with the same chapter number."""
+    newest: dict[tuple, ExtractedChapter] = {}
+    for c in chapters:
+        key = _post_key(c)
+        if key is not None and (key not in newest or c.ts > newest[key].ts):
+            newest[key] = c
+    return [c for c in chapters if (key := _post_key(c)) is None or newest[key] is c]
+
+
 def _strip_series_prefix(title: str, series: str) -> str:
     """"Novel Name - Chapter 3: X" -> "Chapter 3: X" when the remainder has a number."""
     series = series.strip()
@@ -280,11 +323,13 @@ def parse_wacz(path: Path) -> ParsedArchive:
         for c in chapters:
             classify(c, url_path_text(c.url))
         _numbers_from_url_pattern(chapters)
+        resolve_ranges(chapters)
+        chapters = drop_renamed_duplicates(chapters)
 
         # Last resort: the text the browser displayed, saved with each page. It holds
         # chapters whose network responses aren't readable (e.g. encrypted and filled in by
         # the site's script), so it only fills numbers no other source has.
-        present = {int(c.number) for c in chapters if c.number is not None}
+        present = {n for c in chapters for n in covered(c.number, c.number_end)}
         taken = {_url_key(c.url) for c in chapters}
         for r in chapters_from_page_texts(list(w.page_texts())):
             if int(r.number) in present or _url_key(r.url) in taken:
@@ -317,8 +362,8 @@ def parse_wacz(path: Path) -> ParsedArchive:
         # Payload numbers carry no season, so only report them for single-season novels.
         unreadable: dict[int, str] = {}
         if all(c.season in (None, SIDE_SEASON) for c in chapters):
-            present = {int(c.number) for c in chapters
-                       if c.number is not None and c.season is None}
+            present = {n for c in chapters if c.season is None
+                       for n in covered(c.number, c.number_end)}
             unreadable = {n: r for n, r in sorted(xhr.unavailable.items()) if n not in present}
 
         return ParsedArchive(
@@ -404,7 +449,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     refresh_captures(session, novel)
     kept = [c for c in novel.chapters if c.origin == "browser"]
     kept_urls = {_url_key(c.url) for c in kept}
-    kept_numbers = {(c.season or 0, int(c.number)) for c in kept if c.number is not None}
+    kept_numbers = {(c.season or 0, n) for c in kept for n in covered(c.number, c.number_end)}
     for c in list(novel.chapters):
         if c.origin != "browser":
             session.delete(c)
@@ -415,12 +460,14 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     new_chapters = []
     for i, ec in enumerate(parsed.chapters):
         if _url_key(ec.url) in kept_urls or (
-                ec.number is not None and (ec.season or 0, int(ec.number)) in kept_numbers):
+                any((ec.season or 0, n) in kept_numbers
+                    for n in covered(ec.number, ec.number_end))):
             continue
         ch = Chapter(
             novel_id=novel.id,
             position=i,
             number=ec.number,
+            number_end=ec.number_end,
             season=ec.season,
             season_label=ec.season_label,
             title=ec.title,
@@ -430,6 +477,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             char_count=ec.text_length,
             auto_title=ec.title,
             auto_number=ec.number,
+            auto_number_end=ec.number_end,
             auto_season=ec.season,
             auto_season_label=ec.season_label,
         )
@@ -439,7 +487,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             if prev.custom_title:
                 ch.title, ch.custom_title = prev.title, True
             if prev.custom_number:
-                ch.number, ch.custom_number = prev.number, True
+                ch.number, ch.number_end, ch.custom_number = prev.number, prev.number_end, True
             if prev.custom_season:
                 ch.season, ch.season_label, ch.custom_season = (
                     prev.season, prev.season_label, True)

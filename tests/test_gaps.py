@@ -45,3 +45,12 @@ def test_trailing_gaps_listed_after_last_chapter():
     gaps = find_gaps([1, 2], unreadable={3: "locked"})
     chapters = [Row(id=1, number=1, season=None), Row(id=2, number=2, season=None)]
     assert gaps_before(chapters, gaps) == {None: gaps}
+
+
+def test_range_chapters_count_as_present():
+    from shelf.gaps import covered, find_season_gaps
+
+    assert list(covered(96, 97)) == [96, 97] and list(covered(5)) == [5]
+    assert list(covered(None)) == []
+    rows = [(None, "", 95, None), (None, "", 96, 97), (None, "", 98, None), (None, "", 101)]
+    assert [g.label for g in find_season_gaps(rows)] == ["99–100"]

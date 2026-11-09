@@ -174,7 +174,7 @@
       {% if show_hidden %}
         {% set edited = c.custom_title or c.custom_number or c.custom_season %}
         <span class="chapter-tools">
-          {% if c.number is not none %}<small class="muted">#{{ c.number|chapter_number }}</small>{% endif %}
+          {% if c.number is not none %}<small class="muted">#{{ c.number|chapter_number(c.number_end) }}</small>{% endif %}
           {% if edited %}<small class="edited" title="Edited by you">edited</small>{% endif %}
           {% if c.origin == 'browser' %}<small class="edited" title="Sent from the browser extension; kept when the archive is re-imported">captured</small>{% endif %}
           <details class="edit-chapter">
@@ -184,9 +184,10 @@
                 <input name="title" value="{{ c.title if c.custom_title else '' }}" placeholder="{{ c.auto_title or c.title }}">
               </label>
               <label>Number
-                <input name="number" value="{{ c.number|chapter_number if c.custom_number else '' }}"
-                       placeholder="{{ c.auto_number|chapter_number or 'none' }}" inputmode="decimal"
-                       pattern="\s*\d+(\.\d+)?(\s*-\s*\d{1,2})?\s*" title="e.g. 12, 12.5 or 207-2">
+                <input name="number" value="{{ c.number|chapter_number(c.number_end) if c.custom_number else '' }}"
+                       placeholder="{{ c.auto_number|chapter_number(c.auto_number_end) or 'none' }}"
+                       pattern="\s*\d+(\.\d+)?(\s*-\s*\d{1,2}|\s*(–|—|~|\.\.|to|TO|To)\s*\d+)?\s*"
+                       title="e.g. 12, 12.5, 207-2 (part 2 of chapter 207) or 96 to 97 (one post for two chapters)">
               </label>
               {% if seasons %}
               <label>Season
