@@ -125,3 +125,21 @@ body { background: var(--pico-background-color); }
 .chapters li.season-heading { column-span: all; display: block; margin: 1.25rem 0 .5rem -2.5rem; list-style: none; }
 .chapters li.season-heading:first-child { margin-top: 0; }
 .chapters li.season-heading h4 { margin: 0; padding-bottom: .25rem; border-bottom: 1px solid var(--pico-muted-border-color); }
+
+/* chapter editing */
+.chapters.editing { columns: 1; }
+.chapters.editing li:not(.season-heading):not(.missing) { flex-wrap: wrap; padding: .2rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
+.chapters.editing li { gap: .3rem .6rem; align-items: center; }
+.chapter-tools { display: contents; }
+.chapter-tools > :first-child { margin-left: auto; }
+.edited { color: var(--pico-primary); font-style: italic; }
+.edit-chapter { margin: 0; }
+.edit-chapter summary { font-size: .85rem; color: var(--pico-primary); }
+.edit-chapter summary::after { display: none; }
+.edit-chapter[open] { flex-basis: 100%; order: 10; }
+.edit-chapter-form { display: grid; grid-template-columns: 3fr 1fr auto; gap: .5rem; align-items: end; margin: .5rem 0 0; }
+.edit-chapter-form:has(select) { grid-template-columns: 3fr 1fr 1.2fr; }
+.edit-chapter-form label { margin: 0; font-size: .8rem; }
+.edit-chapter-form input, .edit-chapter-form select { margin: .2rem 0 0; padding-block: .3rem; height: auto; }
+.edit-actions { display: flex; gap: .4rem; grid-column: 1 / -1; }
+@media (max-width: 576px) { .edit-chapter-form, .edit-chapter-form:has(select) { grid-template-columns: 1fr; } }

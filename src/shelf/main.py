@@ -23,7 +23,7 @@ from .config import settings
 from .db import Chapter, Novel, TrimRule, get_session, init_db, utcnow
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count
-from .library import apply_metadata, import_wacz, scan_status, start_scan
+from .library import apply_metadata, import_wacz, resequence, scan_status, start_scan
 from .novelupdates import MetadataError, fetch_series, parse_series_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 
@@ -53,7 +53,9 @@ def flash_redirect(url: str, msg: str | None = None, error: bool = False) -> Red
     from urllib.parse import quote
 
     if msg:
+        url, hash_, fragment = url.partition("#")
         url += ("&" if "?" in url else "?") + ("error=" if error else "msg=") + quote(msg)
+        url += hash_ + fragment  # the query must come before any #fragment
     return RedirectResponse(url, status_code=303)
 
 
@@ -67,7 +69,8 @@ def get_novel(session: Session, novel_id: int) -> Novel:
 def visible_chapters(session: Session, novel_id: int, include_hidden: bool = False):
     q = select(Chapter.id, Chapter.position, Chapter.number, Chapter.season,
                Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.hidden,
-               Chapter.url).where(Chapter.novel_id == novel_id)
+               Chapter.url, Chapter.auto_title, Chapter.auto_number, Chapter.custom_title,
+               Chapter.custom_number, Chapter.custom_season).where(Chapter.novel_id == novel_id)
     if not include_hidden:
         q = q.where(Chapter.hidden == False)  # noqa: E712
     return session.exec(q.order_by(Chapter.position)).all()
@@ -184,7 +187,8 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         {"novel": novel, "chapters": chapters, "last": last, "show_hidden": hidden,
          "hidden_count": hidden_count, "gaps": gaps, "missing_total": missing_count(gaps),
          "gaps_before": gaps_before(chapters, gaps),
-         "first_number": int(min(numbered)) if numbered else None},
+         "first_number": int(min(numbered)) if numbered else None,
+         "seasons": novel_seasons(session, novel_id) if hidden else []},
     )
 
 
@@ -265,6 +269,96 @@ def toggle_hidden(session: SessionDep, chapter_id: int):
     ch.hidden = not ch.hidden
     session.commit()
     return flash_redirect(f"/novel/{ch.novel_id}?hidden=1#ch-{ch.id}")
+
+
+CHAPTER_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d{1,2}))?\s*$")
+
+
+def parse_chapter_number(text: str) -> float:
+    """'12', '12.5' or '207-2' (part 2 of chapter 207, as the importer numbers it)."""
+    m = CHAPTER_NUMBER_RE.match(text)
+    if not m:
+        raise ValueError(text)
+    number = float(m.group(1))
+    return number + int(m.group(2)) / 1000 if m.group(2) else number
+
+
+def format_chapter_number(number: float | None) -> str:
+    """Inverse of parse_chapter_number: 207.002 -> '207-2', 12.5 -> '12.5'."""
+    if number is None:
+        return ""
+    part = round((number - int(number)) * 1000)
+    if 0 < part < 100 and abs(number - int(number) - part / 1000) < 1e-9:
+        return f"{int(number)}-{part}"
+    return f"{number:g}"
+
+
+templates.env.filters["chapter_number"] = format_chapter_number
+
+
+def novel_seasons(session: Session, novel_id: int) -> list[tuple[int, str]]:
+    rows = session.exec(
+        select(Chapter.season, Chapter.season_label)
+        .where(Chapter.novel_id == novel_id, Chapter.season != None)  # noqa: E711
+        .distinct()
+    ).all()
+    return sorted({(s, label) for s, label in rows}, key=lambda r: r[0])
+
+
+@app.post("/chapter/{chapter_id}/edit")
+def edit_chapter(
+    session: SessionDep,
+    chapter_id: int,
+    title: Annotated[str, Form()] = "",
+    number: Annotated[str, Form()] = "",
+    season: Annotated[str, Form()] = "auto",
+    reset: Annotated[str, Form()] = "",
+):
+    ch = session.get(Chapter, chapter_id)
+    if ch is None:
+        raise HTTPException(404)
+    back = f"/novel/{ch.novel_id}?hidden=1#ch-{ch.id}"
+    auto_title = ch.auto_title or ch.title
+    if reset:
+        title, number, season = "", "", "auto"
+
+    title = title.strip()
+    if title and title != auto_title:
+        ch.title, ch.custom_title = title, True
+    else:
+        ch.title, ch.custom_title = auto_title, False
+
+    number = number.strip()
+    if number:
+        try:
+            value = parse_chapter_number(number)
+        except ValueError:
+            return flash_redirect(back, f"“{number}” isn't a chapter number (e.g. 12, 12.5, 207-2)",
+                                  error=True)
+        ch.number, ch.custom_number = value, value != ch.auto_number
+    else:
+        ch.number, ch.custom_number = ch.auto_number, False
+
+    if season == "auto":
+        ch.season, ch.season_label, ch.custom_season = (
+            ch.auto_season, ch.auto_season_label, False)
+    else:
+        labels = dict(novel_seasons(session, ch.novel_id))
+        try:
+            wanted = int(season)
+        except ValueError:
+            wanted = -1
+        if wanted not in labels:
+            return flash_redirect(back, "Unknown season", error=True)
+        ch.season, ch.season_label = wanted, labels[wanted]
+        ch.custom_season = wanted != ch.auto_season
+
+    session.add(ch)
+    session.flush()
+    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == ch.novel_id)).all())
+    resequence(chapters)
+    session.commit()
+    return flash_redirect(back, "Chapter reset" if reset else "Chapter saved")
 
 
 # -- reader ------------------------------------------------------------------

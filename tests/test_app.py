@@ -1,3 +1,4 @@
+import re
 import shutil
 
 import pytest
@@ -137,3 +138,45 @@ def test_trim_rules(client):
     assert "End of chapter 1." in client.get("/chapter/1").text
     client.post("/trim/1/delete", data={"next": "/"})
     assert "/trim/1/" not in client.get("/novel/1/trim").text
+
+
+def test_edit_chapter_title_and_number(client):
+    from sqlmodel import Session
+
+    from shelf.config import settings
+    from shelf.db import get_engine
+    from shelf.library import import_wacz, scan_library
+
+    path = build_wacz(settings.library_dir / "a.wacz")  # chapters 1, 2, 3, 10 -> ids 1..4
+    scan_library()
+
+    def order():
+        page = client.get("/novel/1").text
+        return [int(x) for x in re.findall(r'<li id="ch-(\d+)"', page)]
+
+    assert order() == [1, 2, 3, 4]
+    client.post("/chapter/2/edit", data={"title": "  My Title  ", "number": "11"})
+    assert order() == [1, 3, 4, 2]
+    page = client.get("/novel/1?hidden=1").text
+    assert "My Title" in page and "edited" in page
+    assert "Missing: chapters 4–9" in page and "Missing: chapter 2" in page
+
+    r = client.post("/chapter/3/edit", data={"number": "x"})
+    assert "a chapter number (e.g. 12" in r.text
+    client.post("/chapter/3/edit", data={"number": "1-2"})
+    assert order() == [1, 3, 4, 2]  # 1.002 sorts right after chapter 1
+
+    # Edits survive a forced re-import (matched by URL).
+    with Session(get_engine()) as session:
+        import_wacz(session, path, force=True)
+    page = client.get("/novel/1").text
+    assert "My Title" in page
+    titles = re.findall(r'<li id="ch-\d+"[^>]*>\s*<a href="/chapter/\d+">([^<]*)</a>', page)
+    assert titles[-1] == "My Title" and titles[1].startswith("Chapter 3")
+
+    # Reset restores what was detected.
+    new_id = int(re.findall(r'<li id="ch-(\d+)"', page)[-1])
+    client.post(f"/chapter/{new_id}/edit", data={"reset": "1"})
+    titles = re.findall(r'<li id="ch-\d+"[^>]*>\s*<a href="/chapter/\d+">([^<]*)</a>',
+                        client.get("/novel/1").text)
+    assert titles[1:3] == ["Chapter 3", "Chapter 2"] and "My Title" not in titles

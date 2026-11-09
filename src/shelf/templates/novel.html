@@ -124,7 +124,11 @@
     {% endif %}
   </details>
   {% endif %}
-  <ol class="chapters">
+  {% if show_hidden %}
+  <p class="muted"><small>Edit titles, or set a chapter's number to move it — chapters are ordered by
+    {% if seasons %}season and {% endif %}number. Leave a field empty to use the detected value. Edits are kept when the archive is re-imported.</small></p>
+  {% endif %}
+  <ol class="chapters{% if show_hidden %} editing{% endif %}">
     {% for c in chapters %}
     {% if c.season_label and (loop.first or loop.previtem.season_label != c.season_label) %}
     <li class="season-heading" id="season-{{ c.season }}"><h4>{{ c.season_label }}</h4></li>
@@ -137,9 +141,39 @@
     <li id="ch-{{ c.id }}" class="{% if last and c.id == last.id %}current{% endif %} {% if c.hidden %}is-hidden{% endif %}">
       <a href="/chapter/{{ c.id }}">{{ c.title }}</a>
       {% if show_hidden %}
-        <form method="post" action="/chapter/{{ c.id }}/toggle-hidden" class="inline">
-          <button class="outline secondary small">{% if c.hidden %}Show{% else %}Hide{% endif %}</button>
-        </form>
+        {% set edited = c.custom_title or c.custom_number or c.custom_season %}
+        <span class="chapter-tools">
+          {% if c.number is not none %}<small class="muted">#{{ c.number|chapter_number }}</small>{% endif %}
+          {% if edited %}<small class="edited" title="Edited by you">edited</small>{% endif %}
+          <details class="edit-chapter">
+            <summary>Edit</summary>
+            <form method="post" action="/chapter/{{ c.id }}/edit" class="edit-chapter-form">
+              <label>Title
+                <input name="title" value="{{ c.title if c.custom_title else '' }}" placeholder="{{ c.auto_title or c.title }}">
+              </label>
+              <label>Number
+                <input name="number" value="{{ c.number|chapter_number if c.custom_number else '' }}"
+                       placeholder="{{ c.auto_number|chapter_number or 'none' }}" inputmode="decimal"
+                       pattern="\s*\d+(\.\d+)?(\s*-\s*\d{1,2})?\s*" title="e.g. 12, 12.5 or 207-2">
+              </label>
+              {% if seasons %}
+              <label>Season
+                <select name="season">
+                  <option value="auto">Detected{% if c.auto_season_label %} ({{ c.auto_season_label }}){% endif %}</option>
+                  {% for s, label in seasons %}<option value="{{ s }}" {% if c.custom_season and c.season == s %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+              </label>
+              {% endif %}
+              <div class="edit-actions">
+                <button type="submit" class="small">Save</button>
+                {% if edited %}<button type="submit" name="reset" value="1" class="small secondary outline">Reset to detected</button>{% endif %}
+              </div>
+            </form>
+          </details>
+          <form method="post" action="/chapter/{{ c.id }}/toggle-hidden" class="inline">
+            <button class="outline secondary small">{% if c.hidden %}Show{% else %}Hide{% endif %}</button>
+          </form>
+        </span>
       {% else %}
         <small class="muted">{{ (c.char_count / 1000)|round(1) }}k</small>
       {% endif %}

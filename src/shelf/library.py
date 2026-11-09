@@ -251,10 +251,25 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             captured_at=ec.ts,
             content_html=ec.html,
             char_count=ec.text_length,
-            hidden=old[ec.url].hidden if ec.url in old else False,
+            auto_title=ec.title,
+            auto_number=ec.number,
+            auto_season=ec.season,
+            auto_season_label=ec.season_label,
         )
+        prev = old.get(ec.url)
+        if prev is not None:
+            ch.hidden = prev.hidden
+            if prev.custom_title:
+                ch.title, ch.custom_title = prev.title, True
+            if prev.custom_number:
+                ch.number, ch.custom_number = prev.number, True
+            if prev.custom_season:
+                ch.season, ch.season_label, ch.custom_season = (
+                    prev.season, prev.season_label, True)
         session.add(ch)
         new_chapters.append(ch)
+    if any(c.custom_number or c.custom_season for c in new_chapters):
+        resequence(new_chapters)
     session.flush()
     novel.last_chapter_id = next((c.id for c in new_chapters if c.url == last_url), None)
     if novel.last_chapter_id is None:
@@ -269,6 +284,24 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     log.info("Imported %s: %d chapters (%d pages skipped)", rel, len(new_chapters),
              len(parsed.skipped))
     return novel
+
+
+def chapter_sort_key(ch: Chapter):
+    """Reading order: season, then number; unnumbered chapters keep their relative place."""
+    return (
+        ch.season or 0,
+        ch.number if ch.number is not None else float("-inf"),
+        ch.position,
+    )
+
+
+def resequence(chapters: list[Chapter]) -> None:
+    """Renumber positions after numbers/seasons were edited."""
+    numbered = sum(c.number is not None for c in chapters)
+    if numbered < max(1, len(chapters) // 2):
+        return  # mostly unnumbered: capture order is all we have, keep it
+    for i, ch in enumerate(sorted(chapters, key=chapter_sort_key)):
+        ch.position = i
 
 
 # -- background scanning ---------------------------------------------------

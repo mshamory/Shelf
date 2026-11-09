@@ -66,6 +66,16 @@ class Chapter(SQLModel, table=True):
     char_count: int = 0
     hidden: bool = False
 
+    # title/number/season above are the effective values. What the importer detected is
+    # kept here so user edits can be reset; custom_* flags survive re-imports (by URL).
+    auto_title: str = ""
+    auto_number: float | None = None
+    auto_season: int | None = None
+    auto_season_label: str = ""
+    custom_title: bool = False
+    custom_number: bool = False
+    custom_season: bool = False
+
     novel: Novel | None = Relationship(back_populates="chapters")
 
 
@@ -106,11 +116,12 @@ def get_engine():
     return engine
 
 
-def _add_missing_columns(conn) -> None:
+def _add_missing_columns(conn) -> set[str]:
     """Minimal forward-only migration: add columns introduced after a table was created."""
     from sqlalchemy import inspect
 
     insp = inspect(conn)
+    added: set[str] = set()
     for table in SQLModel.metadata.sorted_tables:
         if not insp.has_table(table.name):
             continue
@@ -126,13 +137,21 @@ def _add_missing_columns(conn) -> None:
             conn.exec_driver_sql(
                 f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl_type}{default}'
             )
+            added.add(f"{table.name}.{col.name}")
+    return added
 
 
 def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
     with engine.begin() as conn:
-        _add_missing_columns(conn)
+        added = _add_missing_columns(conn)
+        if "chapter.auto_title" in added:
+            # Existing chapters: what we have now is what was detected.
+            conn.exec_driver_sql(
+                "UPDATE chapter SET auto_title = title, auto_number = number, "
+                "auto_season = season, auto_season_label = season_label"
+            )
 
 
 def get_session():
