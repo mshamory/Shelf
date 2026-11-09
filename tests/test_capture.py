@@ -111,3 +111,43 @@ def test_extension_zip(client):  # noqa: F811
     z = zipfile.ZipFile(io.BytesIO(client.get("/extension.zip").content))
     assert {"manifest.json", "popup.html", "popup.js", "capture.js"} <= set(z.namelist())
     assert json.loads(z.read("manifest.json"))["manifest_version"] == 3
+
+
+def test_header_metadata_and_author_card_are_trimmed(client):  # noqa: F811
+    nid = client.post("/api/novels", json={"title": "Night Train"}).json()["novel"]["id"]
+    html = ("<html><head><title>Chapter 14 - Night Train | Example Reads</title></head><body>"
+            "<main><article><h2><span>Chapter 14</span></h2>"
+            "<p><span>12 min read</span> <span>·</span> <span>11 Oct 2026</span></p>"
+            "<p>Chapter 14: Trample the Gates</p>" + PARA + PARA.replace("night", "dusk")
+            + '<div><img src="https://ex.com/a.jpg" alt="akaza">'
+            "<p>Meet the author</p><a href='/user/a'>akaza</a></div>"
+            "<p>Water is Good, Akaza is Water.</p></article></main></body></html>")
+    r = client.post(f"/api/novels/{nid}/chapters",
+                    json={"url": "https://ex.com/s/14", "html": html}).json()
+    assert r["chapter"]["title"] == "Chapter 14: Trample the Gates"
+    reader = client.get(r["chapter"]["url"]).text
+    assert "dusk" in reader
+    assert "Meet the author" not in reader and "Akaza is Water" not in reader
+    assert "min read" not in reader and "a.jpg" not in reader
+
+
+def test_reimport_reextracts_captures(client, monkeypatch):  # noqa: F811
+    from shelf import capture
+    from shelf.config import settings
+    from shelf.library import scan_library
+
+    build_wacz(settings.library_dir / "night-train.wacz")
+    scan_library()
+    nid = client.get("/api/novels").json()["novels"][0]["id"]
+    client.post(f"/api/novels/{nid}/chapters", json={
+        "url": "https://elsewhere.example/nt/5", "html": page(5, title="Chapter 5: Stop 5")})
+    real = capture.extract_page
+
+    def improved(url, html, series):
+        c = real(url, html, series)
+        c.title += " (improved)"
+        return c
+
+    monkeypatch.setattr(capture, "extract_page", improved)
+    client.post(f"/novel/{nid}/reimport")
+    assert "Chapter 5: Stop 5 (improved)" in client.get(f"/novel/{nid}").text

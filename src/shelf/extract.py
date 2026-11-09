@@ -200,7 +200,37 @@ def extract_content(html: str, url: str | None = None) -> str | None:
     cleaned = sanitize(_strip_wrapper(best))
     # Drop empty paragraphs left behind by sanitising.
     cleaned = re.sub(r"<p>\s*(?:<br>\s*)*</p>", "", cleaned)
-    return cleaned.strip() or None
+    return strip_trailing_widgets(cleaned).strip() or None
+
+
+# End-of-chapter boxes that main-content extraction can pick up along with the chapter:
+# author/translator cards, donation and follow prompts.
+WIDGET_MARKER_RE = re.compile(
+    r"^\s*(?:meet|about) the (?:author|translator|editor)s?\b"
+    r"|^\s*(?:support|follow) (?:me|us|the (?:author|translator|team))\b"
+    r"|^\s*(?:buy me a coffee|become a patron|donate)\b",
+    re.I,
+)
+WIDGET_MAX_CHARS = 600  # a widget is short; anything longer after the marker is content
+_BLOCK_RE = re.compile(r"<(p|h[1-6]|li|div|blockquote)\b[^>]*>(.*?)</\1>", re.S)
+
+
+def strip_trailing_widgets(html: str) -> str:
+    """Cut an author card / donation box at the very end of a chapter (and the avatar or
+    blank lines just before it)."""
+    tail_start = max(0, len(html) - 4000)
+    for m in reversed(list(_BLOCK_RE.finditer(html, tail_start))):
+        text = re.sub(r"<[^>]+>", "", m.group(2))
+        if not WIDGET_MARKER_RE.search(text):
+            continue
+        after = re.sub(r"<[^>]+>", "", html[m.start():])
+        if len(after.strip()) > WIDGET_MAX_CHARS:
+            break
+        head = html[: m.start()]
+        # Avatar images, line breaks and empty blocks right before the marker.
+        head = re.sub(r"(?:\s*(?:<img\b[^>]*>|<br>|<(p|div)>\s*</\1>))+\s*$", "", head)
+        return head
+    return html
 
 
 def text_length(html: str) -> int:

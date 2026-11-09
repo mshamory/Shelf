@@ -49,7 +49,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "6"
+EXTRACTOR_VERSION = "7"
 
 
 @dataclass
@@ -107,6 +107,13 @@ def _url_tail(url: str) -> tuple[str, ...]:
 
 
 BARE_TITLE_RE = re.compile(r"(?:chapter|chap\.?|ch\.?|episode|ep\.?)\s*[\d.\-]+", re.I)
+# Byline/metadata lines between a chapter label and its full heading.
+META_LINE_RE = re.compile(
+    r"(?:\d+\s*(?:min(?:ute)?s?|m)\s*read\b|\d{1,2}\s+[a-z]{3,9}\.?\s+\d{4}\b"
+    r"|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}\b|\d{4}-\d{2}-\d{2}\b|(?:posted|updated|published)\b"
+    r"|(?:by|translator|translated by|editor|edited by)\s*:?\s+\S|[\d,.]+k?\s+(?:words|views)\b)",
+    re.I,
+)
 _LEADING_BLOCK_RE = re.compile(r"\s*(<(p|h[1-6])>(.*?)</\2>|<img[^>]*>|<br>)", re.S)
 
 
@@ -138,6 +145,8 @@ def _promote_heading(title: str, content: str) -> tuple[str, str]:
                 continue  # "Chapter 678 : Chapter 678" - keep looking
         elif not base and len(text) <= 200 and chapter_number(text) is not None:
             return text, content[pos:].lstrip()
+        if m.group(2) == "p" and len(text) <= 80 and META_LINE_RE.match(text):
+            continue  # "12 min read · 11 Oct 2026", "Posted by X", "2,345 words"
         if m.group(2) == "p":
             break  # reached the body text
     return title or "", content
@@ -390,6 +399,9 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     last_url = next((c.url for c in novel.chapters if c.id == novel.last_chapter_id), None)
     # Chapters sent from the browser stay, and win over archive chapters with their URL or
     # number.
+    from .capture import refresh_captures
+
+    refresh_captures(session, novel)
     kept = [c for c in novel.chapters if c.origin == "browser"]
     kept_urls = {_url_key(c.url) for c in kept}
     kept_numbers = {(c.season or 0, int(c.number)) for c in kept if c.number is not None}
@@ -523,6 +535,12 @@ def scan_library(force: bool = False) -> None:
                     log.exception("Import failed for %s", p)
                     scan_status.errors.append(f"{p.name}: {e}")
                 scan_status.done += 1
+            if force:  # extraction changed: also redo novels made only from the browser
+                from .capture import refresh_captures
+
+                for novel in session.exec(select(Novel)).all():
+                    if not has_archive(novel) and refresh_captures(session, novel):
+                        session.commit()
             # Forget novels whose files have disappeared.
             present = {str(p.resolve().relative_to(settings.library_dir.resolve())) for p in files}
             for novel in session.exec(select(Novel)).all():

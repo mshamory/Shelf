@@ -242,3 +242,35 @@ def match_score(page_url: str, chapter_urls: list[str]) -> int:
             shared += 1
         best = max(best, shared)
     return best
+
+
+def refresh_captures(session: Session, novel: Novel) -> int:
+    """Re-extract chapters sent from the browser from their saved pages (after extraction
+    improves). Edited titles/numbers/seasons are kept. Returns how many were updated."""
+    from .config import settings
+
+    chapters = list(novel.chapters)
+    updated = 0
+    for ch in chapters:
+        if ch.origin != "browser" or not ch.capture_file:
+            continue
+        path = settings.data_dir / ch.capture_file
+        try:
+            html = gzip.decompress(path.read_bytes()).decode("utf-8", errors="replace")
+            ec = extract_page(ch.url, html, novel.title)
+        except (OSError, CaptureError):
+            continue
+        season, label = _season_for(ec, [c for c in chapters if c is not ch])
+        ch.content_html, ch.char_count = ec.html, ec.text_length
+        ch.auto_title, ch.auto_number = ec.title, ec.number
+        ch.auto_season, ch.auto_season_label = season, label
+        if not ch.custom_title:
+            ch.title = ec.title
+        if not ch.custom_number:
+            ch.number = ec.number
+        if not ch.custom_season:
+            ch.season, ch.season_label = season, label
+        updated += 1
+    if updated:
+        resequence(chapters)
+    return updated
