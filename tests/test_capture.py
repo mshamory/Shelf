@@ -183,3 +183,38 @@ def test_delete_novel_without_chapters(client):  # noqa: F811
     assert not bad.exists()
     scan_library()
     assert all(n["chapters"] for n in client.get("/api/novels").json()["novels"])
+
+
+def test_parts_of_one_chapter_are_kept_apart(client):  # noqa: F811
+    from shelf.config import settings
+    from shelf.library import scan_library
+
+    nid = client.post("/api/novels", json={"title": "Night Train"}).json()["novel"]["id"]
+
+    def send(n: str) -> dict:
+        title = f"Night Train Ch.{n}"
+        return client.post(f"/api/novels/{nid}/chapters", json={
+            "url": f"https://ex.com/night-train-ch-{n.replace('.', '-')}/",
+            "html": page(0, title=title).replace("Chapter 0: Stop 0", title)}).json()
+
+    assert send("228.2")["action"] == "added"
+    assert send("228.1")["action"] == "added"
+    assert send("228")["action"] == "added"
+    html = client.get(f"/novel/{nid}").text
+    assert html.index("Ch.228<") < html.index("Ch.228.1") < html.index("Ch.228.2")
+
+    assert send("228.1")["action"] == "updated"
+
+    # A captured part of an archived chapter doesn't replace it, on capture or re-import.
+    build_wacz(settings.library_dir / "night-train.wacz")  # chapters 1, 2, 3, 10
+    scan_library()
+    arch = client.get("/api/novels", params={"url": "https://example.com/night-train/ch-4"})
+    aid = arch.json()["novels"][0]["id"]
+    r = client.post(f"/api/novels/{aid}/chapters", json={
+        "url": "https://elsewhere.example/nt/2-1", "html": page(2, title="Chapter 2.1: Half")})
+    assert r.json()["action"] == "added"
+    client.post(f"/novel/{aid}/reimport")
+    html = client.get(f"/novel/{aid}").text
+    import re
+    titles = re.findall(r"<a href=\"/chapter/\d+\">([^<]*)</a>", html)
+    assert "Chapter 2.1: Half" in titles and any(t.startswith("Chapter 2") and "2.1" not in t for t in titles), titles

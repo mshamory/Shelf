@@ -35,7 +35,7 @@ from .extract import (
     text_length,
     url_path_text,
 )
-from .gaps import covered
+from .gaps import covered, same_chapter
 from .novelupdates import (
     MetadataError,
     NovelMetadata,
@@ -597,7 +597,8 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     refresh_captures(session, novel)
     kept = [c for c in novel.chapters if c.origin == "browser"]
     kept_urls = {_url_key(c.url) for c in kept}
-    kept_numbers = {(c.season or 0, n) for c in kept for n in covered(c.number, c.number_end)}
+    kept_numbers = {(c.season or 0, n) for c in kept for n in covered(c.number, c.number_end)
+                    if c.number == int(c.number)}  # whole chapters, for unreadable numbers
     for c in list(novel.chapters):
         if c.origin != "browser":
             session.delete(c)
@@ -608,8 +609,9 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     new_chapters = []
     for i, ec in enumerate(parsed.chapters):
         if _url_key(ec.url) in kept_urls or (
-                any((ec.season or 0, n) in kept_numbers
-                    for n in covered(ec.number, ec.number_end))):
+                any((ec.season or 0) == (c.season or 0)
+                    and same_chapter(ec.number, ec.number_end, c.number, c.number_end)
+                    for c in kept)):
             continue
         ch = Chapter(
             novel_id=novel.id,

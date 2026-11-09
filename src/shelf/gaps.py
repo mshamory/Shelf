@@ -52,6 +52,17 @@ def covered(number: float | None, end: float | None = None) -> range:
     return range(start, max(start, int(end)) + 1 if end is not None else start + 1)
 
 
+def same_chapter(a: float | None, a_end: float | None, b: float | None,
+                 b_end: float | None) -> bool:
+    """Whether two numbered chapters are the same chapter: parts must match exactly
+    (228.1 isn't 228.2 or 228), whole numbers and ranges overlap ("96-97" includes 97)."""
+    if a is None or b is None:
+        return False
+    if a != int(a) or b != int(b):
+        return a == b
+    return bool(set(covered(a, a_end)) & set(covered(b, b_end)))
+
+
 def find_gaps(
     numbers: Iterable[float | None], season: int | None = None, season_label: str = "",
     unreadable: Mapping[int, str] | None = None,

@@ -30,7 +30,7 @@ from .extract import (
     text_length,
     url_path_text,
 )
-from .gaps import covered
+from .gaps import covered, same_chapter
 from .library import (
     BARE_TITLE_RE,
     _is_part,
@@ -148,12 +148,10 @@ def find_target(chapters: list[Chapter], url: str, number: float | None,
     for c in chapters:
         if _url_key(c.url) == key:
             return c
-    wanted = set(covered(number, number_end))
-    if wanted:
-        for c in chapters:
-            if (c.season or 0) == (season or 0) and wanted & set(
-                    covered(c.number, c.number_end)):
-                return c
+    for c in chapters:
+        if (c.season or 0) == (season or 0) and same_chapter(number, number_end, c.number,
+                                                             c.number_end):
+            return c
     return None
 
 
@@ -203,7 +201,7 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
         session.add(ch)
         existing.append(ch)
     resequence(existing)
-    if ch.number is not None and novel.unreadable_chapters:
+    if ch.number is not None and ch.number == int(ch.number) and novel.unreadable_chapters:
         filled = set(covered(ch.number, ch.number_end))
         novel.unreadable_chapters = {k: v for k, v in novel.unreadable_chapters.items()
                                      if int(k) not in filled}
