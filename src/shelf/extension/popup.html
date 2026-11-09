@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shelf Capture</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <strong>Shelf</strong>
+    <button id="toggle-settings" class="link" title="Settings">Settings</button>
+  </header>
+
+  <form id="settings" hidden>
+    <label>Shelf address
+      <input id="server" type="url" placeholder="http://localhost:8000" required>
+    </label>
+    <div class="row">
+      <button type="submit">Save</button>
+      <span id="settings-status" class="muted"></span>
+    </div>
+  </form>
+
+  <p id="page-title" class="page-title"></p>
+
+  <!-- NovelUpdates series page -->
+  <section id="series" hidden>
+    <p>A NovelUpdates series page.</p>
+    <button id="create-novel" class="primary">Create novel from this page</button>
+    <div id="existing-novel" class="stack">
+      <label>Or set its metadata on
+        <select id="metadata-novel"></select>
+      </label>
+      <button id="apply-metadata">Apply metadata</button>
+    </div>
+  </section>
+
+  <!-- Chapter page -->
+  <form id="chapter" hidden>
+    <label>Novel
+      <select id="novel"></select>
+    </label>
+    <label id="new-title-label" hidden>New novel's title
+      <input id="new-title" placeholder="Novel title">
+    </label>
+    <div id="preview" class="preview" aria-live="polite"></div>
+    <div class="row">
+      <label class="grow">Title
+        <input id="title" placeholder="Detected title">
+      </label>
+      <label class="narrow">Number
+        <input id="number" inputmode="decimal" pattern="\s*\d+(\.\d+)?\s*" placeholder="—">
+      </label>
+    </div>
+    <label id="selection-label" class="check" hidden>
+      <input id="selection-only" type="checkbox"> Only the selected text
+    </label>
+    <button id="send" type="submit" class="primary">Add to Shelf</button>
+  </form>
+
+  <p id="status" class="status" role="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

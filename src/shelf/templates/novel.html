@@ -29,7 +29,8 @@
       {% if novel.original_publisher %}<dt>Original publisher</dt><dd>{{ novel.original_publisher|join(', ') }}</dd>{% endif %}
       {% if novel.english_publisher %}<dt>English publisher</dt><dd>{{ novel.english_publisher|join(', ') }}</dd>{% endif %}
       {% if novel.artists %}<dt>Artists</dt><dd>{{ novel.artists|join(', ') }}</dd>{% endif %}
-      <dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
+      {% if has_archive(novel) %}<dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
+      {% else %}<dt>Source</dt><dd>Pages sent from the browser</dd>{% endif %}
       {% if novel.metadata_source %}<dt>Metadata</dt><dd>{{ {'wacz': 'NovelUpdates page in archive', 'upload': 'Uploaded NovelUpdates page', 'fetch': 'Fetched from NovelUpdates', 'manual': 'Edited manually'}[novel.metadata_source] }}</dd>{% endif %}
     </dl>
 
@@ -106,7 +107,7 @@
         <a href="/novel/{{ novel.id }}?hidden=1" title="Hide pages that aren't chapters">Edit list</a>
         <a href="/novel/{{ novel.id }}/trim" title="Remove watermarks and translator notes">Trim text</a>
       {% endif %}
-      <form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>
+      {% if has_archive(novel) %}<form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>{% endif %}
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
     </div>
   </header>
@@ -161,6 +162,7 @@
         <span class="chapter-tools">
           {% if c.number is not none %}<small class="muted">#{{ c.number|chapter_number }}</small>{% endif %}
           {% if edited %}<small class="edited" title="Edited by you">edited</small>{% endif %}
+          {% if c.origin == 'browser' %}<small class="edited" title="Sent from the browser extension; kept when the archive is re-imported">captured</small>{% endif %}
           <details class="edit-chapter">
             <summary>Edit</summary>
             <form method="post" action="/chapter/{{ c.id }}/edit" class="edit-chapter-form">

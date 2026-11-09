@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from sqlmodel import Session, select
 
 from .config import settings
-from .db import Chapter, Novel, get_engine, utcnow
+from .db import BROWSER_PREFIX, Chapter, Novel, get_engine, has_archive, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     SIDE_SEASON,
@@ -382,19 +382,29 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
 
     novel.import_error = None if parsed.chapters else "No chapters found in this archive"
     novel.archive_title = parsed.archive_title
-    novel.unreadable_chapters = {str(n): r for n, r in parsed.unreadable.items()}
     if not novel.metadata_source:
         novel.title = parsed.archive_title or path.stem.replace("_", " ").replace("-", " ")
 
     # Keep reading progress and hidden flags across re-imports by matching chapter URLs.
     old = {c.url: c for c in novel.chapters}
     last_url = next((c.url for c in novel.chapters if c.id == novel.last_chapter_id), None)
+    # Chapters sent from the browser stay, and win over archive chapters with their URL or
+    # number.
+    kept = [c for c in novel.chapters if c.origin == "browser"]
+    kept_urls = {_url_key(c.url) for c in kept}
+    kept_numbers = {(c.season or 0, int(c.number)) for c in kept if c.number is not None}
     for c in list(novel.chapters):
-        session.delete(c)
+        if c.origin != "browser":
+            session.delete(c)
     session.flush()
+    novel.unreadable_chapters = {str(n): r for n, r in parsed.unreadable.items()
+                                 if (0, n) not in kept_numbers}
 
     new_chapters = []
     for i, ec in enumerate(parsed.chapters):
+        if _url_key(ec.url) in kept_urls or (
+                ec.number is not None and (ec.season or 0, int(ec.number)) in kept_numbers):
+            continue
         ch = Chapter(
             novel_id=novel.id,
             position=i,
@@ -423,7 +433,8 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
                     prev.season, prev.season_label, True)
         session.add(ch)
         new_chapters.append(ch)
-    if any(c.custom_number or c.custom_season for c in new_chapters):
+    new_chapters += kept
+    if kept or any(c.custom_number or c.custom_season for c in new_chapters):
         resequence(new_chapters)
     session.flush()
     novel.last_chapter_id = next((c.id for c in new_chapters if c.url == last_url), None)
@@ -439,6 +450,16 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     log.info("Imported %s: %d chapters (%d pages skipped)", rel, len(new_chapters),
              len(parsed.skipped))
     return novel
+
+
+def captures_dir(novel_id: int) -> Path:
+    return settings.data_dir / "captures" / str(novel_id)
+
+
+def delete_captures(novel_id: int) -> None:
+    import shutil
+
+    shutil.rmtree(captures_dir(novel_id), ignore_errors=True)
 
 
 def chapter_sort_key(ch: Chapter):
@@ -505,11 +526,22 @@ def scan_library(force: bool = False) -> None:
             # Forget novels whose files have disappeared.
             present = {str(p.resolve().relative_to(settings.library_dir.resolve())) for p in files}
             for novel in session.exec(select(Novel)).all():
-                if novel.wacz_path not in present:
-                    log.info("Removing %s (file no longer in library)", novel.wacz_path)
-                    if novel.cover_file:
-                        (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
-                    session.delete(novel)
+                if not has_archive(novel) or novel.wacz_path in present:
+                    continue
+                if any(c.origin == "browser" for c in novel.chapters):
+                    # Keep what was sent from the browser; drop only the archive's chapters.
+                    log.info("Archive %s is gone; keeping browser chapters", novel.wacz_path)
+                    for c in list(novel.chapters):
+                        if c.origin != "browser":
+                            session.delete(c)
+                    novel.wacz_path = f"{BROWSER_PREFIX}{novel.id}"
+                    novel.unreadable_chapters = {}
+                    continue
+                log.info("Removing %s (file no longer in library)", novel.wacz_path)
+                if novel.cover_file:
+                    (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
+                delete_captures(novel.id)
+                session.delete(novel)
             session.commit()
         version_file.write_text(EXTRACTOR_VERSION)
     finally:

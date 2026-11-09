@@ -12,7 +12,8 @@ def utcnow() -> datetime:
 
 class Novel(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    wacz_path: str = Field(index=True, unique=True)  # relative to library_dir
+    # Relative to library_dir; "browser:<id>" for novels created from the browser extension.
+    wacz_path: str = Field(index=True, unique=True)
     wacz_size: int = 0
     wacz_mtime: float = 0.0
     archive_title: str = ""
@@ -68,6 +69,10 @@ class Chapter(SQLModel, table=True):
     content_html: str = Field(default="", sa_column=Column(Text))
     char_count: int = 0
     hidden: bool = False
+    # "archive": imported from the WACZ (replaced on re-import); "browser": sent by the
+    # browser extension (kept across re-imports, wins over archive chapters with its number).
+    origin: str = "archive"
+    capture_file: str | None = None  # raw page as sent, relative to data_dir
 
     # title/number/season above are the effective values. What the importer detected is
     # kept here so user edits can be reset; custom_* flags survive re-imports (by URL).
@@ -80,6 +85,13 @@ class Chapter(SQLModel, table=True):
     custom_season: bool = False
 
     novel: Novel | None = Relationship(back_populates="chapters")
+
+
+BROWSER_PREFIX = "browser:"
+
+
+def has_archive(novel: "Novel") -> bool:
+    return not novel.wacz_path.startswith(BROWSER_PREFIX)
 
 
 class TrimRule(SQLModel, table=True):

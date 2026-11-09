@@ -8,8 +8,10 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,12 +21,19 @@ from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
 from . import __version__
+from .capture import (
+    CaptureError,
+    add_chapter,
+    create_novel,
+    match_score,
+    novel_by_nu_url,
+)
 from .config import settings
-from .db import Chapter, Novel, TrimRule, get_session, init_db, utcnow
+from .db import Chapter, Novel, TrimRule, get_session, has_archive, init_db, utcnow
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
 from .library import apply_metadata, import_wacz, resequence, scan_status, start_scan
-from .novelupdates import MetadataError, fetch_series, parse_series_page
+from .novelupdates import MetadataError, fetch_series, is_series_url, parse_series_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 
 log = logging.getLogger("shelf")
@@ -42,9 +51,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Shelf", version=__version__, lifespan=lifespan)
+# The browser extension calls the API from its own origin.
+app.add_middleware(CORSMiddleware, allow_origin_regex=r"^(moz|chrome|safari-web)-extension://.+$",
+                   allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
-templates.env.globals.update(version=__version__, settings=settings)
+templates.env.globals.update(version=__version__, settings=settings, has_archive=has_archive)
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -70,7 +82,8 @@ def visible_chapters(session: Session, novel_id: int, include_hidden: bool = Fal
     q = select(Chapter.id, Chapter.position, Chapter.number, Chapter.season,
                Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.hidden,
                Chapter.url, Chapter.auto_title, Chapter.auto_number, Chapter.custom_title,
-               Chapter.custom_number, Chapter.custom_season).where(Chapter.novel_id == novel_id)
+               Chapter.custom_number, Chapter.custom_season,
+               Chapter.origin).where(Chapter.novel_id == novel_id)
     if not include_hidden:
         q = q.where(Chapter.hidden == False)  # noqa: E712
     return session.exec(q.order_by(Chapter.position)).all()
@@ -249,6 +262,9 @@ def metadata_edit(
 @app.post("/novel/{novel_id}/reimport")
 async def reimport(session: SessionDep, novel_id: int):
     novel = get_novel(session, novel_id)
+    if not has_archive(novel):
+        return flash_redirect(f"/novel/{novel_id}", "This novel has no archive to re-import",
+                              error=True)
     path = settings.library_dir / novel.wacz_path
     if not path.exists():
         return flash_redirect(f"/novel/{novel_id}", "Archive file is missing", error=True)
@@ -575,3 +591,149 @@ def cover(name: str):
     if path.parent != settings.covers_dir.resolve() or not path.is_file():
         raise HTTPException(404)
     return FileResponse(path, headers={"Cache-Control": "public, max-age=604800, immutable"})
+
+
+# -- browser extension API -------------------------------------------------
+#
+# The Shelf Capture extension sends pages exactly as the browser displayed them. Shelf has
+# no authentication (see README), so these endpoints are as open as the rest of the app.
+
+
+class PagePayload(BaseModel):
+    url: str
+    html: str
+
+
+class CoverPayload(BaseModel):
+    data: str  # base64
+    mime: str = "image/jpeg"
+
+
+class NewNovel(BaseModel):
+    title: str = ""
+    novelupdates: PagePayload | None = None
+    cover: CoverPayload | None = None
+
+
+class MetadataPayload(PagePayload):
+    cover: CoverPayload | None = None
+
+
+class ChapterPayload(PagePayload):
+    title: str = ""
+    number: float | None = None
+    dry_run: bool = False
+
+
+def _decode_cover(cover: CoverPayload | None) -> tuple[bytes, str] | None:
+    import base64
+
+    if cover is None or not cover.mime.startswith("image/"):
+        return None
+    try:
+        data = base64.b64decode(cover.data, validate=False)
+    except ValueError:
+        return None
+    return (data, cover.mime) if data else None
+
+
+def _novel_json(novel: Novel, chapters: int, last: float | None, score: int = 0) -> dict:
+    return {"id": novel.id, "title": novel.title, "chapters": chapters,
+            "last_number": last, "nu_url": novel.nu_url, "has_archive": has_archive(novel),
+            "cover": f"/covers/{novel.cover_file}" if novel.cover_file else None,
+            "url": f"/novel/{novel.id}", "match": score}
+
+
+@app.get("/api/novels")
+def api_novels(session: SessionDep, url: str = ""):
+    """Novels for the extension's picker; with `url`, best match for that page first."""
+    stats = {nid: (n, last) for nid, n, last in session.exec(
+        select(Chapter.novel_id, func.count(Chapter.id), func.max(Chapter.number))
+        .group_by(Chapter.novel_id)).all()}
+    urls: dict[int, list[str]] = {}
+    if url:
+        host = urlsplit(url).hostname or ""
+        for nid, u in session.exec(select(Chapter.novel_id, Chapter.url)
+                                   .where(col(Chapter.url).contains(host))).all():
+            urls.setdefault(nid, []).append(u)
+    nu_match = novel_by_nu_url(session, url) if is_series_url(url) else None
+    out = []
+    for novel in session.exec(select(Novel)).all():
+        n, last = stats.get(novel.id, (0, None))
+        score = match_score(url, urls.get(novel.id, [])) if url else 0
+        if nu_match is novel:
+            score = 1000
+        out.append(_novel_json(novel, n, last, score))
+    out.sort(key=lambda d: (-d["match"], d["title"].casefold()))
+    return {"novels": out}
+
+
+@app.post("/api/novels")
+async def api_create_novel(session: SessionDep, body: NewNovel):
+    meta = None
+    if body.novelupdates is not None:
+        try:
+            meta = parse_series_page(body.novelupdates.html, body.novelupdates.url)
+        except MetadataError as e:
+            raise HTTPException(422, str(e)) from e
+        existing = novel_by_nu_url(session, meta.url or body.novelupdates.url)
+        if existing is not None:
+            return JSONResponse({"novel": _novel_json(existing, len(existing.chapters), None),
+                                 "created": False}, status_code=200)
+    novel = create_novel(session, body.title or (meta.title if meta else ""))
+    if meta is not None:
+        await run_in_threadpool(apply_metadata, novel, meta, "upload",
+                                _decode_cover(body.cover))
+        session.commit()
+    return JSONResponse({"novel": _novel_json(novel, 0, None), "created": True},
+                        status_code=201)
+
+
+@app.post("/api/novels/{novel_id}/metadata")
+async def api_novel_metadata(session: SessionDep, novel_id: int, body: MetadataPayload):
+    novel = get_novel(session, novel_id)
+    try:
+        meta = parse_series_page(body.html, body.url)
+    except MetadataError as e:
+        raise HTTPException(422, str(e)) from e
+    await run_in_threadpool(apply_metadata, novel, meta, "upload", _decode_cover(body.cover))
+    session.commit()
+    return {"novel": _novel_json(novel, len(novel.chapters), None)}
+
+
+@app.post("/api/novels/{novel_id}/chapters")
+async def api_add_chapter(session: SessionDep, novel_id: int, body: ChapterPayload):
+    novel = get_novel(session, novel_id)
+    try:
+        result = await run_in_threadpool(add_chapter, session, novel, body.url, body.html,
+                                         body.title, body.number, body.dry_run)
+    except CaptureError as e:
+        raise HTTPException(422, str(e)) from e
+    ch = result.chapter
+    return {
+        "action": result.action,
+        "replaced_title": result.replaced_title,
+        "dry_run": body.dry_run,
+        "chapter": {"id": ch.id, "title": ch.title, "number": ch.number,
+                    "season_label": ch.season_label, "chars": ch.char_count,
+                    "url": f"/chapter/{ch.id}" if ch.id else None},
+        "novel": {"id": novel.id, "title": novel.title, "url": f"/novel/{novel.id}"},
+    }
+
+
+@app.get("/extension.zip")
+def extension_zip():
+    """The browser extension, zipped (load it unpacked, or install the zip in Firefox)."""
+    import io
+    import zipfile
+
+    from fastapi.responses import Response
+
+    root = HERE / "extension"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                z.write(path, path.relative_to(root))
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="shelf-capture.zip"'})

@@ -36,6 +36,38 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
   chapter search, upload of WACZ files from the browser, and hiding of non-chapter pages.
 
+### Browser extension
+
+**Shelf Capture** sends the page you're reading to Shelf exactly as your browser displays it,
+after the site's scripts have loaded the chapter. Elements the page hides with CSS are left
+out, and text drawn by CSS is kept. Use it for chapters an archive didn't capture well, or to
+build a novel without any archive.
+
+- On a **NovelUpdates series page**, it creates a novel with that page's metadata and cover,
+  or applies the metadata to a novel you already have.
+- On a **chapter page**, pick the novel; the one whose chapters come from the same site and
+  path is preselected. You can also start a new novel. Before you send, it shows the detected
+  title and number and whether the page adds a chapter or replaces one. Correct the title or
+  number if needed. With text selected, you can send just the selection.
+
+Chapters sent this way are kept when the novel's archive is re-imported, and they take the
+place of archived chapters with the same URL or number. If the archive is removed, the novel
+stays with just the sent chapters. The raw pages are kept in `data/captures/`.
+
+To install, download the extension from the link at the bottom of any Shelf page
+(`/extension.zip`) and unzip it.
+
+- **Chrome, Edge, Brave**: open `chrome://extensions`, turn on *Developer mode*, choose *Load
+  unpacked* and select the unzipped folder.
+- **Firefox**: open `about:debugging#/runtime/this-firefox` and choose *Load Temporary
+  Add-on…* with the `manifest.json` file. This lasts until Firefox restarts. For a permanent
+  install, sign the extension as an unlisted add-on on addons.mozilla.org, or use Firefox
+  Developer Edition with `xpinstall.signatures.required` set to `false`.
+
+Open the extension (or press Alt+Shift+S) and set Shelf's address under *Settings*. The default
+is `http://localhost:8000`. If your browser refuses a plain-HTTP address on your network,
+serve Shelf over HTTPS through a reverse proxy.
+
 ### Getting NovelUpdates metadata
 
 NovelUpdates is behind bot protection, and Shelf does not try to get around it. Use one of
@@ -43,9 +75,10 @@ these instead, in order of reliability:
 
 1. **Archive the series page with the chapters.** If the WACZ contains a
    `novelupdates.com/series/…` page, Shelf picks up its metadata and cover automatically.
-2. **Upload a saved page.** Open the series page in your browser, save it
+2. **Send the page with the browser extension** (see above).
+3. **Upload a saved page.** Open the series page in your browser, save it
    (Ctrl+S → "Web page, HTML only"), and upload it on the novel's page.
-3. **Fetch by URL.** A plain HTTP request; it works only if NovelUpdates allows it.
+4. **Fetch by URL.** A plain HTTP request; it works only if NovelUpdates allows it.
 
 You can also edit the title, authors, genres, tags and status by hand.
 
