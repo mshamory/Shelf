@@ -16,7 +16,7 @@ from .db import Chapter, Novel, get_engine, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     ExtractedChapter,
-    chapter_number,
+    classify,
     decode_html,
     extract_content,
     is_error_page,
@@ -41,7 +41,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "2"
+EXTRACTOR_VERSION = "3"
 
 
 @dataclass
@@ -136,7 +136,6 @@ def parse_wacz(path: Path) -> ParsedArchive:
                     title=title,
                     html=content,
                     text_length=n,
-                    number=chapter_number(title, url_path_text(url)),
                     ts=page.ts or captured,
                 )
             )
@@ -149,6 +148,8 @@ def parse_wacz(path: Path) -> ParsedArchive:
                 seen[key] = c
         chapters = list(seen.values())
 
+        for c in chapters:
+            classify(c, url_path_text(c.url))
         for c, t in zip(chapters, strip_common_affixes([c.title for c in chapters]), strict=True):
             c.title = t
 
@@ -243,6 +244,8 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             novel_id=novel.id,
             position=i,
             number=ec.number,
+            season=ec.season,
+            season_label=ec.season_label,
             title=ec.title,
             url=ec.url,
             captured_at=ec.ts,

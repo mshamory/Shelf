@@ -91,3 +91,59 @@ def test_post_replays_and_challenges(tmp_path):
     assert parsed.chapters[2].url == base + "3/"
     assert parsed.chapters[2].title.startswith("Chapter 3")
     assert parsed.skipped == []
+
+
+def test_stacked_site_suffixes_and_glued_prefix():
+    titles = [f"Series Name - Chapter {i}.1 - Novel Live - Reading Novel Free" for i in range(1, 6)]
+    titles.append("SERIES NAME - Chapter 6.1 - Novel Live - Reading Novel Free")
+    assert strip_common_affixes(titles) == [f"Chapter {i}.1" for i in range(1, 7)]
+    titles = [f"Series Name – Chapter {i} – Title {i} – EAP" for i in range(1, 5)]
+    titles.append("Series Name Part 2 Chapter 1: Again – EAP")
+    assert strip_common_affixes(titles)[-1] == "Part 2 Chapter 1: Again"
+
+
+@pytest.mark.parametrize("title,error", [
+    ("Trash – Chapter 404 – Only Me (1) – EAP", False),
+    ("Chapter 503: Service", False),
+    ("Error", True),
+    ("404 Not Found", True),
+    ("Page not found – Site", True),
+    ("Just a moment...", True),
+    ("Errors of Youth", False),
+])
+def test_error_titles(title, error):
+    from shelf.extract import is_error_page
+    assert is_error_page(title, 200) is error
+
+
+def _chapters(*titles):
+    from shelf.extract import ExtractedChapter, classify
+
+    out = []
+    for i, t in enumerate(titles):
+        c = ExtractedChapter(url=f"https://x/{i}", title=t, html="", text_length=0,
+                             ts=f"{i:04d}")
+        classify(c, "")
+        out.append(c)
+    return out
+
+
+def test_seasons_split_when_numbering_restarts():
+    from shelf.extract import order_chapters
+
+    chs = _chapters("Part 2 Chapter 2: b", "Chapter 2", "Side Story 1-2", "Part 2 Chapter 1: a",
+                    "Chapter 1", "Side Story 1-1", "Chapter 404 – Only Me")
+    ordered = order_chapters(chs)
+    assert [(c.season_label, c.number) for c in ordered] == [
+        ("Part 1", 1), ("Part 1", 2), ("Part 1", 404), ("Part 2", 1), ("Part 2", 2),
+        ("Side stories", 1.001), ("Side stories", 1.002)]
+
+
+def test_volumes_with_continuous_numbering_stay_one_list():
+    from shelf.extract import order_chapters
+
+    chs = _chapters("Volume 2, Chapter 3", "Volume 1, Chapter 1", "Chapter 2",
+                    "Volume 1, Chapter 2")
+    ordered = order_chapters(chs)
+    assert [c.number for c in ordered] == [1, 2, 2, 3]
+    assert {c.season_label for c in ordered} == {""} and {c.season for c in ordered} == {None}

@@ -122,3 +122,6 @@ body { background: var(--pico-background-color); }
 .trim-rules .row-actions { display: flex; gap: .4rem; justify-content: flex-end; }
 .trim-rules .row-actions form { margin: 0; }
 .trim-rules tr.is-disabled td { opacity: .5; }
+.chapters li.season-heading { column-span: all; display: block; margin: 1.25rem 0 .5rem -2.5rem; list-style: none; }
+.chapters li.season-heading:first-child { margin-top: 0; }
+.chapters li.season-heading h4 { margin: 0; padding-bottom: .25rem; border-bottom: 1px solid var(--pico-muted-border-color); }

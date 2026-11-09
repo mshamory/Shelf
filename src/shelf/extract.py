@@ -25,8 +25,9 @@ ALLOWED_ATTRS = {"img": {"src", "alt", "title"}, "td": {"colspan", "rowspan"},
                  "th": {"colspan", "rowspan"}}
 
 ERROR_TITLE_RE = re.compile(
-    r"\b(page not found|404|not found|access denied|just a moment|attention required|"
-    r"error \d{3})\b",
+    r"^\s*(?:error|404|403|500|502|503)\b|"
+    r"\b(?:page not found|not found|access denied|just a moment|attention required|"
+    r"error \d{3}|\d{3} error)\b",
     re.I,
 )
 TITLE_SEPARATORS = re.compile(r"\s+[|–—\-:»·]\s+")
@@ -35,10 +36,25 @@ TITLE_SEPARATORS = re.compile(r"\s+[|–—\-:»·]\s+")
 _NUM = r"(\d+(?:\.\d+)?)"
 CHAPTER_PATTERNS = [
     # In titles, "Chapter 207-2" is part 2 of chapter 207.
-    re.compile(rf"\b(?:chapter|chap|ch|episode|ep|part)\s*[.#:\-]?\s*{_NUM}(?:-(\d{{1,2}})\b)?", re.I),
+    re.compile(rf"\b(?:chapter|chap|ch|episode|ep)\s*[.#:\-]?\s*{_NUM}(?:-(\d{{1,2}})\b)?", re.I),
     re.compile(rf"第\s*{_NUM}\s*[章话話回]"),
     re.compile(rf"(?:^|[/\-_])(?:c|ch|chapter|episode|ep)[\-_]?{_NUM}(?:[/\-_.]|$)", re.I),
 ]
+
+# A season marker must come before the chapter marker: "Part 2 Chapter 16", "S2 Ep 3".
+# ("Chapter 12 Part 2" is a part of chapter 12, not a season.)
+SEASON_RE = re.compile(
+    r"\b(?:(season|part|book|volume|vol|arc)\.?\s*|(s))(\d+)\b(?!\.\d)", re.I
+)
+SEASON_WORDS = {"s": "Season", "vol": "Volume"}
+# Unnumbered extras: "Side Story 1-1", "Extra 3", "Special Chapter", ...
+SIDE_RE = re.compile(
+    r"\b(?:side[\s\-]*stor(?:y|ies)|extras?|special|bonus|omake|ss)\b"
+    r"(?:\s*[.#:\-]?\s*(\d+)(?:-(\d{1,2}))?)?",
+    re.I,
+)
+SIDE_SEASON = 1_000_000  # sorts after every real season
+SIDE_LABEL = "Side stories"
 
 MIN_CHAPTER_CHARS = 300
 
@@ -51,6 +67,9 @@ class ExtractedChapter:
     text_length: int
     number: float | None = None
     ts: str = ""
+    season: int | None = None  # detected season/part/book number, or SIDE_SEASON
+    season_word: str = ""  # "Part", "Season", "Book", ...
+    season_label: str = ""  # final grouping label ("Part 2"); empty when not split
 
 
 def detect_charset(body: bytes, content_type: str = "") -> str:
@@ -144,36 +163,109 @@ def chapter_number(*candidates: str) -> float | None:
     return None
 
 
+def _chapter_match(text: str):
+    for pat in CHAPTER_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return m
+    return None
+
+
+def chapter_season(*candidates: str) -> tuple[int, str] | None:
+    """Season marker preceding the chapter marker, e.g. ("Part 2 Chapter 16") -> (2, "Part")."""
+    for cand in candidates:
+        if not cand:
+            continue
+        m = _chapter_match(cand)
+        if m is None:
+            continue
+        found = list(SEASON_RE.finditer(cand[: m.start()]))
+        if found:
+            m = found[-1]
+            word, n = m.group(1) or m.group(2), int(m.group(3))
+            word = SEASON_WORDS.get(word.lower(), word.capitalize())
+            return n, word
+        return None  # the first candidate with a chapter marker decides
+    return None
+
+
+def side_story_number(title: str) -> float | None | bool:
+    """For an unnumbered side story: its number (or True if unnumbered); False otherwise."""
+    m = SIDE_RE.search(title or "")
+    if not m:
+        return False
+    if m.group(1):
+        n = float(m.group(1))
+        return n + int(m.group(2)) / 1000 if m.group(2) else n
+    return True
+
+
+def classify(chapter: ExtractedChapter, path_text: str) -> None:
+    """Fill in number/season for a chapter from its title and URL path."""
+    chapter.number = chapter_number(chapter.title, path_text)
+    if chapter.number is not None:
+        season = chapter_season(chapter.title, path_text)
+        if season:
+            chapter.season, chapter.season_word = season
+        return
+    side = side_story_number(chapter.title)
+    if side is not False:
+        chapter.season, chapter.season_word = SIDE_SEASON, SIDE_LABEL
+        chapter.number = side if side is not True else None
+
+
 def url_path_text(url: str) -> str:
     return unquote(urlparse(url).path)
 
 
 def is_error_page(title: str, status: int) -> bool:
-    return not (200 <= status < 300) or bool(ERROR_TITLE_RE.search(title or ""))
+    if not 200 <= status < 300:
+        return True
+    # "Chapter 404" is a chapter, not an error page.
+    return chapter_number(title or "") is None and bool(ERROR_TITLE_RE.search(title or ""))
+
+
+_SEP_CHARS = " |–—-:»·"
 
 
 def strip_common_affixes(titles: list[str]) -> list[str]:
-    """Remove a site-name segment shared by most titles ("Ch 1 – Site" -> "Ch 1")."""
+    """Remove site/series segments shared by most titles.
+
+    "Series - Chapter 1.1 - Novel Live - Reading Novel Free" -> "Chapter 1.1". Segments are
+    compared case-insensitively and stripped repeatedly, so stacked suffixes all go.
+    """
     if len(titles) < 2:
         return titles
-    last = Counter()
-    first = Counter()
-    for t in titles:
-        parts = TITLE_SEPARATORS.split(t)
-        if len(parts) > 1:
-            last[parts[-1]] += 1
-            first[parts[0]] += 1
     threshold = max(2, int(len(titles) * 0.6))
-    suffix = next((s for s, n in last.most_common(1) if n >= threshold), None)
-    prefix = next((s for s, n in first.most_common(1) if n >= threshold), None)
-    out = []
-    for t in titles:
-        parts = TITLE_SEPARATORS.split(t)
-        if suffix and len(parts) > 1 and parts[-1] == suffix:
-            t = t[: t.rfind(suffix)].rstrip(" |–—-:»·")
-        if prefix and len(parts) > 1 and parts[0] == prefix and not chapter_number(prefix):
-            t = t[len(prefix):].lstrip(" |–—-:»·")
-        out.append(t.strip() or "Untitled")
+    out = list(titles)
+    for _ in range(5):
+        changed = False
+        last, first = Counter(), Counter()
+        for t in out:
+            parts = TITLE_SEPARATORS.split(t)
+            if len(parts) > 1:
+                last[parts[-1].casefold()] += 1
+                first[parts[0].casefold()] += 1
+        suffix = next((x for x, n in last.most_common(1) if n >= threshold), None)
+        prefix = next((x for x, n in first.most_common(1) if n >= threshold), None)
+        if prefix and chapter_number(prefix) is not None:
+            prefix = None
+        for i, t in enumerate(out):
+            parts = TITLE_SEPARATORS.split(t)
+            if len(parts) > 1 and suffix and parts[-1].casefold() == suffix:
+                t = t[: len(t) - len(parts[-1])].rstrip(_SEP_CHARS)
+                changed = True
+            if len(parts) > 1 and prefix and parts[0].casefold() == prefix:
+                t = t[len(parts[0]):].lstrip(_SEP_CHARS)
+                changed = True
+            elif prefix and t.casefold().startswith(prefix + " ") and \
+                    chapter_number(t[len(prefix):]) is not None:
+                # Prefix glued on without a separator: "Series Part 2 Chapter 4: Title".
+                t = t[len(prefix):].lstrip(_SEP_CHARS)
+                changed = True
+            out[i] = t.strip() or "Untitled"
+        if not changed:
+            break
     return _strip_shared_suffix(out)
 
 
@@ -196,14 +288,46 @@ def _strip_shared_suffix(titles: list[str]) -> list[str]:
     return titles
 
 
+def assign_seasons(chapters: list[ExtractedChapter]) -> bool:
+    """Decide whether detected seasons are real and label them. Returns True if split.
+
+    Seasons only matter when chapter numbering restarts: "Part 2 Chapter 1" after
+    "Chapter 1". Volumes with continuous numbering ("Volume 3, Chapter 304") stay one list.
+    Chapters without a marker belong to the first season.
+    """
+    main = [c for c in chapters if c.season != SIDE_SEASON]
+    seen: dict[int, set[int]] = {}
+    for c in main:
+        if c.number is not None:
+            seen.setdefault(int(c.number), set()).add(c.season or 1)
+    split = any(len(s) > 1 for s in seen.values())
+    words = Counter(c.season_word for c in main if c.season is not None)
+    word = words.most_common(1)[0][0] if words else "Season"
+    for c in chapters:
+        if c.season == SIDE_SEASON:
+            c.season_label = SIDE_LABEL
+        elif split:
+            if c.season is None and c.number is not None:
+                c.season = 1
+            c.season_label = f"{word} {c.season}" if c.season is not None else ""
+        else:
+            c.season, c.season_label = None, ""
+    return split
+
+
 def order_chapters(chapters: list[ExtractedChapter]) -> list[ExtractedChapter]:
-    """Order by detected chapter number; unnumbered chapters keep capture order."""
+    """Order by season, then chapter number; unnumbered chapters keep capture order."""
+    assign_seasons(chapters)
     numbered = sum(c.number is not None for c in chapters)
     if numbered >= max(1, len(chapters) // 2):
-        # Unnumbered pages (prologues, side stories) sort by capture time among themselves,
-        # before numbered ones if they were captured first.
+        # Unnumbered pages (prologues, ...) sort by capture time among themselves,
+        # before numbered ones if they were captured first. Side stories go last.
         return sorted(
             chapters,
-            key=lambda c: (c.number if c.number is not None else float("-inf"), c.ts),
+            key=lambda c: (
+                c.season or 0,
+                c.number if c.number is not None else float("-inf"),
+                c.ts,
+            ),
         )
     return sorted(chapters, key=lambda c: c.ts)

@@ -57,6 +57,8 @@ class Chapter(SQLModel, table=True):
     novel_id: int = Field(foreign_key="novel.id", index=True)
     position: int = Field(index=True)  # 0-based reading order
     number: float | None = None
+    season: int | None = None  # set only when numbering restarts per season/part/book
+    season_label: str = ""  # "Part 2", "Side stories", ...
     title: str = ""
     url: str = ""
     captured_at: str = ""
@@ -104,8 +106,33 @@ def get_engine():
     return engine
 
 
+def _add_missing_columns(conn) -> None:
+    """Minimal forward-only migration: add columns introduced after a table was created."""
+    from sqlalchemy import inspect
+
+    insp = inspect(conn)
+    for table in SQLModel.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            ddl_type = col.type.compile(dialect=conn.dialect)
+            default = ""
+            if col.default is not None and getattr(col.default, "is_scalar", False):
+                value = col.default.arg
+                default = f" DEFAULT {int(value) if isinstance(value, bool) else repr(value)}"
+            conn.exec_driver_sql(
+                f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl_type}{default}'
+            )
+
+
 def init_db() -> None:
-    SQLModel.metadata.create_all(get_engine())
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+    with engine.begin() as conn:
+        _add_missing_columns(conn)
 
 
 def get_session():

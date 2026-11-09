@@ -118,7 +118,7 @@
     </summary>
     {% if gaps %}
     <p>No captured page is numbered
-      {% for g in gaps %}{{ g.label }}{% if not loop.last %}, {% endif %}{% endfor %}.
+      {% for g in gaps %}{{ g.full_label }}{% if not loop.last %}, {% endif %}{% endfor %}.
       They may not have been archived, or may be listed under a different title. Capture them
       and re-import the archive to fill the gaps.</p>
     {% endif %}
@@ -126,6 +126,9 @@
   {% endif %}
   <ol class="chapters">
     {% for c in chapters %}
+    {% if c.season_label and (loop.first or loop.previtem.season_label != c.season_label) %}
+    <li class="season-heading" id="season-{{ c.season }}"><h4>{{ c.season_label }}</h4></li>
+    {% endif %}
     {% for g in gaps_before.get(c.id, []) %}
     <li class="missing" title="No page with this chapter number was found in the archive">
       <span>Missing: chapter{{ 's' if g.size > 1 }} {{ g.label }}</span>

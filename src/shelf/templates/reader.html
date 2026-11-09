@@ -7,7 +7,11 @@
   <nav class="reader-nav">
     <a href="/novel/{{ novel.id }}" class="reader-back" title="Back to {{ novel.title }}">← <span>{{ novel.title }}</span></a>
     <select id="toc" aria-label="Jump to chapter">
-      {% for c in toc %}<option value="{{ c.id }}" {% if c.id == chapter.id %}selected{% endif %}>{{ c.title }}</option>{% endfor %}
+      {% for c in toc %}
+      {% if c.season_label and (loop.first or loop.previtem.season_label != c.season_label) %}{% if not loop.first %}</optgroup>{% endif %}<optgroup label="{{ c.season_label }}">{% endif %}
+      <option value="{{ c.id }}" {% if c.id == chapter.id %}selected{% endif %}>{{ c.title }}</option>
+      {% if c.season_label and loop.last %}</optgroup>{% endif %}
+      {% endfor %}
     </select>
     <button type="button" id="settings-toggle" class="outline secondary small" aria-expanded="false" aria-controls="settings" title="Reading settings">Aa</button>
   </nav>
@@ -31,7 +35,7 @@
 {% block content %}
 <div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-resume="{{ resume }}">
   <header>
-    <p class="muted chapter-meta">Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
+    <p class="muted chapter-meta">{% if chapter.season_label %}{{ chapter.season_label }} · {% endif %}Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
     <h1>{{ chapter.title }}</h1>
   </header>
   {% if original %}
