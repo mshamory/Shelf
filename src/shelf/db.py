@@ -67,6 +67,24 @@ class Chapter(SQLModel, table=True):
     novel: Novel | None = Relationship(back_populates="chapters")
 
 
+class TrimRule(SQLModel, table=True):
+    """Text to strip from chapters when displayed (watermarks, translator notes, ...).
+
+    Applied at render time, so rules survive re-imports and can be switched off.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    novel_id: int | None = Field(
+        default=None, foreign_key="novel.id", index=True, ondelete="CASCADE"
+    )  # None = applies to every novel
+    pattern: str
+    is_regex: bool = False
+    ignore_case: bool = True
+    mode: str = "text"  # "text": remove the match; "paragraph": remove the whole block
+    enabled: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 engine = None
 
 

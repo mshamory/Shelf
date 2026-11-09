@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_lib
 import logging
 import re
 import shutil
@@ -19,10 +20,11 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__
 from .config import settings
-from .db import Chapter, Novel, get_session, init_db, utcnow
+from .db import Chapter, Novel, TrimRule, get_session, init_db, utcnow
 from .gaps import find_gaps, gaps_before, missing_count
 from .library import apply_metadata, import_wacz, scan_status, start_scan
 from .novelupdates import MetadataError, fetch_series, parse_series_page
+from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 
 log = logging.getLogger("shelf")
 HERE = Path(__file__).parent
@@ -275,7 +277,7 @@ def continue_reading(session: SessionDep, novel_id: int):
 
 
 @app.get("/chapter/{chapter_id}", response_class=HTMLResponse)
-def reader(request: Request, session: SessionDep, chapter_id: int):
+def reader(request: Request, session: SessionDep, chapter_id: int, original: bool = False):
     ch = session.get(Chapter, chapter_id)
     if ch is None:
         raise HTTPException(404, "Chapter not found")
@@ -286,6 +288,10 @@ def reader(request: Request, session: SessionDep, chapter_id: int):
     prev_id = ids[idx - 1] if idx else None
     next_id = ids[idx + 1] if idx is not None and idx + 1 < len(ids) else None
     resume = novel.last_position if novel.last_chapter_id == ch.id else 0.0
+    rules = compile_rules(trim_rules(session, novel.id))
+    content, trimmed = ch.content_html, 0
+    if rules and not original:
+        content, trimmed = apply_rules(ch.content_html, rules)
     # Warn when the next chapter skips numbers (e.g. 128 -> 130).
     gap_ahead = None
     if next_id is not None and ch.number is not None:
@@ -303,7 +309,9 @@ def reader(request: Request, session: SessionDep, chapter_id: int):
         request,
         "reader.html",
         {"novel": novel, "chapter": ch, "toc": toc, "index": idx, "prev_id": prev_id,
-         "next_id": next_id, "resume": resume, "gap_ahead": gap_ahead},
+         "next_id": next_id, "resume": resume, "gap_ahead": gap_ahead,
+         "content": content, "trimmed": trimmed, "original": original,
+         "has_rules": bool(rules)},
     )
 
 
@@ -323,6 +331,99 @@ def save_progress(session: SessionDep, p: Progress):
     novel.last_read_at = utcnow()
     session.commit()
     return {"ok": True}
+
+
+# -- trimming ----------------------------------------------------------------
+
+
+def trim_rules(session: Session, novel_id: int) -> list[TrimRule]:
+    """Rules for one novel plus rules that apply to every novel."""
+    return list(session.exec(
+        select(TrimRule)
+        .where(or_(TrimRule.novel_id == novel_id, TrimRule.novel_id == None))  # noqa: E711
+        .order_by(TrimRule.created_at)
+    ).all())
+
+
+def safe_next(url: str, fallback: str) -> str:
+    # Only allow local redirects.
+    return url if url.startswith("/") and not url.startswith("//") else fallback
+
+
+@app.get("/novel/{novel_id}/trim", response_class=HTMLResponse)
+def trim_page(request: Request, session: SessionDep, novel_id: int, pattern: str = ""):
+    novel = get_novel(session, novel_id)
+    rules = trim_rules(session, novel_id)
+    texts = [
+        re.sub(r"\s+", " ", html_lib.unescape(TAG_RE.sub(" ", html)))
+        for html in session.exec(
+            select(Chapter.content_html).where(Chapter.novel_id == novel_id)
+        ).all()
+    ]
+    affected = {}
+    for rule in rules:
+        try:
+            rx = compile_rule(rule.pattern, rule.is_regex, rule.ignore_case)
+        except InvalidRule:
+            affected[rule.id] = None
+            continue
+        affected[rule.id] = sum(1 for t in texts if rx.search(t))
+    return templates.TemplateResponse(
+        request,
+        "trim.html",
+        {"novel": novel, "rules": rules, "affected": affected, "modes": MODES,
+         "chapter_total": len(texts), "pattern": pattern},
+    )
+
+
+@app.post("/trim")
+def trim_add(
+    session: SessionDep,
+    pattern: Annotated[str, Form()],
+    novel_id: Annotated[int, Form()],
+    scope: Annotated[str, Form()] = "novel",
+    mode: Annotated[str, Form()] = "text",
+    is_regex: Annotated[bool, Form()] = False,
+    ignore_case: Annotated[bool, Form()] = False,
+    next: Annotated[str, Form()] = "",
+):
+    get_novel(session, novel_id)
+    back = safe_next(next, f"/novel/{novel_id}/trim")
+    if mode not in MODES:
+        return flash_redirect(back, "Unknown trim mode", error=True)
+    try:
+        compile_rule(pattern, is_regex, ignore_case)
+    except InvalidRule as e:
+        return flash_redirect(back, str(e), error=True)
+    session.add(TrimRule(
+        novel_id=None if scope == "all" else novel_id,
+        pattern=pattern if is_regex else pattern.strip(),
+        is_regex=is_regex, ignore_case=ignore_case, mode=mode,
+    ))
+    session.commit()
+    return flash_redirect(back, "Trim rule added")
+
+
+def _get_rule(session: Session, rule_id: int) -> TrimRule:
+    rule = session.get(TrimRule, rule_id)
+    if rule is None:
+        raise HTTPException(404, "Rule not found")
+    return rule
+
+
+@app.post("/trim/{rule_id}/toggle")
+def trim_toggle(session: SessionDep, rule_id: int, next: Annotated[str, Form()] = "/"):
+    rule = _get_rule(session, rule_id)
+    rule.enabled = not rule.enabled
+    session.commit()
+    return flash_redirect(safe_next(next, "/"))
+
+
+@app.post("/trim/{rule_id}/delete")
+def trim_delete(session: SessionDep, rule_id: int, next: Annotated[str, Form()] = "/"):
+    session.delete(_get_rule(session, rule_id))
+    session.commit()
+    return flash_redirect(safe_next(next, "/"), "Trim rule deleted")
 
 
 # -- search ------------------------------------------------------------------

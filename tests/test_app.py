@@ -99,3 +99,41 @@ def test_missing_chapters_are_reported(client):
     assert "Missing: chapters 4–9" in page
     assert "Chapters 4–9 are not in the archive" in client.get("/chapter/3").text
     assert "not in the archive" not in client.get("/chapter/2").text
+
+
+def test_trim_rules(client):
+    from shelf.config import settings
+    from shelf.library import scan_library
+
+    build_wacz(settings.library_dir / "a.wacz")
+    build_wacz(settings.library_dir / "b.wacz")
+    scan_library()
+    assert "End of chapter 1." in client.get("/chapter/1").text
+
+    r = client.post("/trim", data={"novel_id": 1, "pattern": "end of chapter 1.",
+                                   "mode": "paragraph", "ignore_case": "true",
+                                   "next": "/chapter/1"}, follow_redirects=False)
+    assert r.headers["location"].startswith("/chapter/1")
+    page = client.get("/chapter/1").text
+    assert "End of chapter 1." not in page and "1 passage trimmed" in page
+    assert "End of chapter 1." in client.get("/chapter/1?original=1").text
+
+    other = client.get("/novel/2/read", follow_redirects=False).headers["location"]
+    assert "End of chapter 1." in client.get(other).text  # novel-scoped rule
+
+    client.post("/trim", data={"novel_id": 1, "pattern": "rattled", "scope": "all"})
+    assert "rattled" not in client.get(other).text  # global rule
+
+    trim_page = client.get("/novel/1/trim").text
+    assert "1 / 4" in trim_page and "4 / 4" in trim_page
+
+    r = client.post("/trim", data={"novel_id": 1, "pattern": "(", "is_regex": "true"})
+    assert "Invalid regular expression" in r.text
+    r = client.post("/trim", data={"novel_id": 1, "pattern": "x", "next": "https://evil.example/"},
+                    follow_redirects=False)
+    assert r.headers["location"].startswith("/novel/1/trim")
+
+    client.post("/trim/1/toggle", data={"next": "/"})
+    assert "End of chapter 1." in client.get("/chapter/1").text
+    client.post("/trim/1/delete", data={"next": "/"})
+    assert "/trim/1/" not in client.get("/novel/1/trim").text

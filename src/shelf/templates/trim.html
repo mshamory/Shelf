@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Trim text · {{ novel.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb"><ul><li><a href="/novel/{{ novel.id }}">{{ novel.title }}</a></li><li>Trim text</li></ul></nav>
+<h2>Trim text</h2>
+<p class="muted">Remove watermarks, translator asides, ads and similar text from chapters. Rules are applied
+  when a chapter is displayed, so the archive is never changed, rules survive re-imports, and you can always
+  view the original from the reader. Tip: select text in the reader and press <strong>Trim…</strong>.</p>
+
+<article>
+  <form method="post" action="/trim" class="trim-form">
+    <input type="hidden" name="novel_id" value="{{ novel.id }}">
+    <label>Text to remove
+      <textarea name="pattern" rows="2" required placeholder="e.g. Read this at example-translations.com">{{ pattern }}</textarea>
+    </label>
+    <div class="grid">
+      <fieldset>
+        <legend>Remove</legend>
+        {% for value, label in modes.items() %}
+        <label><input type="radio" name="mode" value="{{ value }}" {% if loop.first %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <fieldset>
+        <legend>Apply to</legend>
+        <label><input type="radio" name="scope" value="novel" checked> This novel</label>
+        <label><input type="radio" name="scope" value="all"> All novels</label>
+      </fieldset>
+      <fieldset>
+        <legend>Options</legend>
+        <label><input type="checkbox" name="ignore_case" value="true" checked> Ignore case</label>
+        <label><input type="checkbox" name="is_regex" value="true"> Regular expression</label>
+      </fieldset>
+    </div>
+    <button type="submit">Add rule</button>
+  </form>
+</article>
+
+{% if rules %}
+<div class="overflow-auto">
+<table class="striped trim-rules">
+  <thead><tr><th>Pattern</th><th>Removes</th><th>Scope</th><th>Chapters</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rules %}
+    <tr class="{% if not r.enabled %}is-disabled{% endif %}">
+      <td><code>{{ r.pattern }}</code>
+        <small class="muted">{% if r.is_regex %}regex{% else %}text{% endif %}{% if not r.ignore_case %}, case-sensitive{% endif %}</small></td>
+      <td>{{ 'Paragraph' if r.mode == 'paragraph' else 'Match' }}</td>
+      <td>{{ 'All novels' if r.novel_id is none else 'This novel' }}</td>
+      <td>{% if affected[r.id] is none %}<span class="warn">invalid</span>{% else %}{{ affected[r.id] }} / {{ chapter_total }}{% endif %}</td>
+      <td><div class="row-actions">
+        <form method="post" action="/trim/{{ r.id }}/toggle"><input type="hidden" name="next" value="/novel/{{ novel.id }}/trim">
+          <button class="outline secondary small">{{ 'Disable' if r.enabled else 'Enable' }}</button></form>
+        <form method="post" action="/trim/{{ r.id }}/delete"><input type="hidden" name="next" value="/novel/{{ novel.id }}/trim">
+          <button class="outline secondary small">Delete</button></form>
+      </div></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No trim rules yet.</p>
+{% endif %}
+{% endblock %}

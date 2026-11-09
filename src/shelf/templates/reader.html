@@ -34,7 +34,13 @@
     <p class="muted chapter-meta">Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
     <h1>{{ chapter.title }}</h1>
   </header>
-  <div class="chapter-body">{{ chapter.content_html|safe }}</div>
+  {% if original %}
+  <p class="trim-status muted"><small>Showing the original text · <a href="/chapter/{{ chapter.id }}">show trimmed</a></small></p>
+  {% elif trimmed %}
+  <p class="trim-status muted"><small>{{ trimmed }} passage{{ 's' if trimmed != 1 }} trimmed ·
+    <a href="/chapter/{{ chapter.id }}?original=1">show original</a> · <a href="/novel/{{ novel.id }}/trim">rules</a></small></p>
+  {% endif %}
+  <div class="chapter-body">{{ content|safe }}</div>
   <footer class="chapter-foot">
     <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at[:10] }}{% endif %}</small>
   </footer>
@@ -50,6 +56,30 @@
   <a href="/novel/{{ novel.id }}">Contents</a>
   {% if next_id %}<a role="button" href="/chapter/{{ next_id }}" rel="next">Next →</a>{% else %}<span class="muted">The end (for now)</span>{% endif %}
 </nav>
+<button type="button" id="trim-selection" class="trim-fab small" hidden>Trim…</button>
+<dialog id="trim-dialog">
+  <article>
+    <header><strong>Trim this text</strong></header>
+    <form method="post" action="/trim" id="trim-form">
+      <input type="hidden" name="novel_id" value="{{ novel.id }}">
+      <input type="hidden" name="ignore_case" value="true">
+      <input type="hidden" name="next" value="/chapter/{{ chapter.id }}">
+      <label>Text <textarea name="pattern" rows="3" required></textarea></label>
+      <fieldset>
+        <label><input type="radio" name="mode" value="text" checked> Remove just this text</label>
+        <label><input type="radio" name="mode" value="paragraph"> Remove paragraphs containing it</label>
+      </fieldset>
+      <fieldset>
+        <label><input type="radio" name="scope" value="novel" checked> In this novel</label>
+        <label><input type="radio" name="scope" value="all"> In all novels</label>
+      </fieldset>
+      <footer class="dialog-actions">
+        <button type="button" class="secondary" id="trim-cancel">Cancel</button>
+        <button type="submit">Trim everywhere it appears</button>
+      </footer>
+    </form>
+  </article>
+</dialog>
 {% endblock %}
 {% block footer %}{% endblock %}
 {% block scripts %}

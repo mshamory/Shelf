@@ -111,3 +111,14 @@ body { background: var(--pico-background-color); }
 .missing-summary summary { color: var(--pico-del-color, #c0392b); }
 .gap-notice { margin-top: 2rem; padding: .75rem 1rem; font-size: .9rem; border-left: 4px solid var(--pico-del-color, #c0392b);
   background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); }
+
+/* trimming */
+.trim-status { margin: -1rem 0 1.5rem; font-family: var(--pico-font-family-sans-serif); }
+.trim-fab { position: absolute; z-index: 20; box-shadow: var(--pico-card-box-shadow); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+.dialog-actions button { width: auto; margin: 0; }
+.trim-form fieldset label { font-size: .9rem; }
+.trim-rules code { white-space: pre-wrap; word-break: break-word; }
+.trim-rules .row-actions { display: flex; gap: .4rem; justify-content: flex-end; }
+.trim-rules .row-actions form { margin: 0; }
+.trim-rules tr.is-disabled td { opacity: .5; }

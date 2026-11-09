@@ -44,6 +44,33 @@
     if (e.key === "ArrowRight" && link("next")) location.href = link("next").href;
   });
 
+  // ---- trim selected text -----------------------------------------------------
+  const fab = document.getElementById("trim-selection");
+  const dialog = document.getElementById("trim-dialog");
+  const chapterBody = article.querySelector(".chapter-body");
+  const selectedText = () => {
+    const sel = getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return "";
+    const range = sel.getRangeAt(0);
+    if (!chapterBody.contains(range.commonAncestorContainer)) return "";
+    return sel.toString().replace(/\s+/g, " ").trim();
+  };
+  document.addEventListener("selectionchange", () => {
+    const text = selectedText();
+    if (!text) { fab.hidden = true; return; }
+    const rect = getSelection().getRangeAt(0).getBoundingClientRect();
+    fab.style.top = (scrollY + rect.bottom + 8) + "px";
+    fab.style.left = Math.min(scrollX + rect.left, scrollX + innerWidth - 120) + "px";
+    fab.hidden = false;
+  });
+  fab.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
+  fab.addEventListener("click", () => {
+    dialog.querySelector("textarea").value = selectedText();
+    fab.hidden = true;
+    dialog.showModal();
+  });
+  document.getElementById("trim-cancel").addEventListener("click", () => dialog.close());
+
   // ---- progress ------------------------------------------------------------
   const bar = document.getElementById("progress-bar");
   const fraction = () => {

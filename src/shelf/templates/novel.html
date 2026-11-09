@@ -104,6 +104,7 @@
         <a href="/novel/{{ novel.id }}">Done</a>
       {% else %}
         <a href="/novel/{{ novel.id }}?hidden=1" title="Hide pages that aren't chapters">Edit list</a>
+        <a href="/novel/{{ novel.id }}/trim" title="Remove watermarks and translator notes">Trim text</a>
       {% endif %}
       <form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
