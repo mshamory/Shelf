@@ -8,10 +8,12 @@ import logging
 import mimetypes
 import re
 import threading
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from sqlmodel import Session, select
 
 from .config import settings
@@ -42,7 +44,7 @@ from .novelupdates import (
     looks_like_series_page,
     parse_series_page,
 )
-from .rendered import chapters_from_page_texts
+from .rendered import chapters_from_page_texts, looks_like_prose
 from .wacz import Page, WaczFile, normalize_url
 from .xhr import scan_xhr
 
@@ -51,7 +53,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "8"
+EXTRACTOR_VERSION = "9"
 
 
 @dataclass
@@ -92,6 +94,8 @@ def _page_from_capture(
         n = text_length(content) if content else 0
         if not content or n < MIN_CHAPTER_CHARS or is_placeholder(content):
             continue
+        if n < SHORT_PAGE_CHARS and not looks_like_prose(_text_lines(content)):
+            continue  # a short page of links/promos, e.g. a chapter page before it loaded
         title = listed_title if listed_title and not is_error_page(listed_title, 200) else ""
         return (title or own_title or url), content, n, entry.timestamp
     return None
@@ -117,6 +121,133 @@ META_LINE_RE = re.compile(
     re.I,
 )
 _LEADING_BLOCK_RE = re.compile(r"\s*(<(p|h[1-6])>(.*?)</\2>|<img[^>]*>|<br>)", re.S)
+
+
+# Pages shorter than this must read as prose to count as a chapter.
+SHORT_PAGE_CHARS = 1500
+# Aggregator page titles: "#Chapter 1: X - Read Series Chapter 1: X Online - All Page - Novel Bin"
+SEO_TAIL_RE = re.compile(r"\s+[-|–—]\s+(?:read|download)\b(?=.*\b(?:online|free|novel|chapter)\b)"
+                         r".*$", re.I)
+HASH_PREFIX_RE = re.compile(r"^(?:.*?\s)?#(?=[^\d\s#])")
+
+
+def _text_lines(content: str) -> list[str]:
+    tree = HTMLParser(content)
+    node = tree.body or tree.root
+    text = node.text(separator="\n") if node else ""
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+
+def clean_seo_title(title: str) -> str:
+    """"Series #Chapter 1: X - Read Series Chapter 1: X Online - Site" -> "Chapter 1: X"."""
+    title = SEO_TAIL_RE.sub("", title.strip())
+    return HASH_PREFIX_RE.sub("", title).strip() or title
+
+
+def _drop_leading_repeats(content: str, title: str, series: str) -> str:
+    """After promoting a heading: drop the series name and a repeat of the heading that
+    follow it ("<h1>Ch. 3 - X</h1>Series<p>Chapter 3: X</p>…")."""
+    number = chapter_number(title)
+    for _ in range(3):
+        stripped = content.lstrip()
+        m = re.match(r"([^<]+)(?=<)", stripped)
+        if m and series and m.group(1).strip().casefold() == series.strip().casefold():
+            content = stripped[m.end():]
+            continue
+        m = _LEADING_BLOCK_RE.match(stripped)
+        if m and m.group(2):
+            text = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(3))))
+            if len(text) <= 200 and number is not None and chapter_number(text) == number:
+                content = stripped[m.end():]
+                continue
+        break
+    return content.lstrip()
+
+
+def promote_generic_titles(chapters: list[ExtractedChapter], series: str) -> None:
+    """Pages all titled with the site name ("iNovelTranslation"): use the numbered heading
+    at the start of the text instead."""
+    counts = Counter(c.title.strip().casefold() for c in chapters if c.source == "html")
+    for c in chapters:
+        if (c.source != "html" or counts[c.title.strip().casefold()] < 3
+                or chapter_number(c.title) is not None):
+            continue
+        title, content = _promote_heading("", c.html)
+        if title:
+            c.title, c.html = title, _drop_leading_repeats(content, title, series)
+
+
+TITLE_NUMBER_RE = re.compile(r"^(.*?\D)\s*#?(\d+(?:\.\d+)?)\s*$")
+
+
+def _numbers_from_title_pattern(chapters: list[ExtractedChapter]) -> None:
+    """Number chapters titled "<same words> <n>" ("Patron 12", "Series Volume 3") when most
+    unnumbered chapters follow that pattern."""
+    # Compare titles without their site suffix ("Patron 3 – Site"), cleaned per site.
+    clean: dict[int, str] = {}
+    for group in _groups_by_site(chapters):
+        for c, t in zip(group, strip_common_affixes([c.title for c in group]), strict=True):
+            clean[id(c)] = t
+    loose = [c for c in chapters if c.number is None and c.season is None]
+    found = [(c, TITLE_NUMBER_RE.match(clean[id(c)].strip())) for c in loose]
+    prefixes = Counter(m.group(1).strip().casefold() for _c, m in found if m)
+    if not prefixes:
+        return
+    prefix, count = prefixes.most_common(1)[0]
+    if count < max(3, len(loose) * 0.8):
+        return
+    for c, m in found:
+        if m and m.group(1).strip().casefold() == prefix:
+            c.number = float(m.group(2))
+
+
+def _groups_by_site(chapters: list[ExtractedChapter]) -> list[list[ExtractedChapter]]:
+    """Chapters by (source, host): each site formats its page titles its own way, and titles
+    from JSON payloads have no site format at all."""
+    groups: dict[tuple, list[ExtractedChapter]] = {}
+    for c in chapters:
+        groups.setdefault((c.source, urlsplit(c.url).netloc.lower()), []).append(c)
+    return list(groups.values())
+
+
+def _flat_text(c: ExtractedChapter) -> str:
+    return " ".join(" ".join(_text_lines(c.html)).split())
+
+
+def _same_text(a: ExtractedChapter, b: ExtractedChapter) -> bool:
+    """A passage from the middle of one is in the other."""
+    ta, tb = _flat_text(a), _flat_text(b)
+    if len(ta) > len(tb):
+        ta, tb = tb, ta
+    mid = len(ta) // 2
+    return bool(ta) and ta[mid:mid + 150] in tb
+
+
+def mark_duplicates(chapters: list[ExtractedChapter]) -> None:
+    """Several captures of one chapter number (two sites, two URLs for one post): keep one
+    and mark the rest as duplicates (imported hidden). A capture much shorter than the
+    longest is a stub; otherwise prefer the site with the most chapters, then the newest.
+
+    On one site, a repeated number is only a duplicate if the text matches: arcs that
+    restart their numbering, or "Chapter 2 – Part 1/2/3", are different chapters.
+    """
+    def host(c: ExtractedChapter) -> str:
+        return urlsplit(c.url).netloc.lower()
+
+    per_host = Counter(host(c) for c in chapters)
+    groups: dict[tuple, list[ExtractedChapter]] = {}
+    for c in chapters:
+        if c.number is not None:
+            groups.setdefault((c.season, c.number, c.number_end), []).append(c)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        longest = max(c.text_length for c in group)
+        best = max(group, key=lambda c: (c.text_length >= longest * 0.5, per_host[host(c)],
+                                         c.ts))
+        for c in group:
+            if c is not best and (host(c) != host(best) or _same_text(c, best)):
+                c.duplicate = True
 
 
 def _promote_heading(title: str, content: str) -> tuple[str, str]:
@@ -320,9 +451,15 @@ def parse_wacz(path: Path) -> ParsedArchive:
                 seen[key] = c
         chapters = list(seen.values())
 
+        series = (metadata.title if metadata else "") or w.title
+        for c in chapters:
+            if c.source == "html":
+                c.title = clean_seo_title(c.title)
+        promote_generic_titles(chapters, series)
         for c in chapters:
             classify(c, url_path_text(c.url))
         _numbers_from_url_pattern(chapters)
+        _numbers_from_title_pattern(chapters)
         resolve_ranges(chapters)
         chapters = drop_renamed_duplicates(chapters)
 
@@ -330,9 +467,22 @@ def parse_wacz(path: Path) -> ParsedArchive:
         # chapters whose network responses aren't readable (e.g. encrypted and filled in by
         # the site's script), so it only fills numbers no other source has.
         present = {n for c in chapters for n in covered(c.number, c.number_end)}
-        taken = {_url_key(c.url) for c in chapters}
+        by_key = {_url_key(c.url): c for c in chapters}
+        page_text: dict[str, str] = {}
+
+        def already_imported(r) -> bool:
+            """The page holding this text was imported whole (e.g. a volume per page)."""
+            page = by_key.get(_url_key(r.page_url))
+            if page is None:
+                return False
+            if r.page_url not in page_text:
+                page_text[r.page_url] = " ".join(" ".join(_text_lines(page.html)).split())
+            words = " ".join(" ".join(_text_lines(r.html)).split())
+            mid = len(words) // 2
+            return words[mid:mid + 150] in page_text[r.page_url]
+
         for r in chapters_from_page_texts(list(w.page_texts())):
-            if int(r.number) in present or _url_key(r.url) in taken:
+            if int(r.number) in present or _url_key(r.url) in by_key or already_imported(r):
                 continue
             c = ExtractedChapter(url=r.url, title=r.title, html=r.html,
                                  text_length=r.text_length, ts=r.ts, number_hint=r.number,
@@ -340,13 +490,10 @@ def parse_wacz(path: Path) -> ParsedArchive:
             classify(c, url_path_text(c.url))
             chapters.append(c)
             present.add(int(r.number))
-        # Clean titles per source: page titles share a site format ("Series - Ch 3 - Site"),
-        # titles from JSON payloads don't, and mixing them would dilute the vote.
-        for source in {c.source for c in chapters}:
-            group = [c for c in chapters if c.source == source]
+        # Clean titles per site: page titles share a site format ("Series - Ch 3 - Site").
+        for group in _groups_by_site(chapters):
             for c, t in zip(group, strip_common_affixes([c.title for c in group]), strict=True):
-                c.title = t
-        series = (metadata.title if metadata else "") or w.title
+                c.title = t.rstrip(" :-–—|") or t  # "Chapter 1:" (no name after the colon)
         for c in chapters:
             c.title = _strip_series_prefix(c.title, series)
             if c.source == "html" and BARE_TITLE_RE.fullmatch(c.title):
@@ -359,6 +506,7 @@ def parse_wacz(path: Path) -> ParsedArchive:
                 cover = (resp.body, resp.mime)
 
         chapters = order_chapters(chapters)
+        mark_duplicates(chapters)
         # Payload numbers carry no season, so only report them for single-season novels.
         unreadable: dict[int, str] = {}
         if all(c.season in (None, SIDE_SEASON) for c in chapters):
@@ -480,10 +628,14 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             auto_number_end=ec.number_end,
             auto_season=ec.season,
             auto_season_label=ec.season_label,
+            duplicate=ec.duplicate,
+            hidden=ec.duplicate,
         )
         prev = old.get(ec.url)
         if prev is not None:
-            ch.hidden = prev.hidden
+            # Your show/hide choice stands unless the chapter's duplicate status changed.
+            if prev.duplicate == ec.duplicate:
+                ch.hidden = prev.hidden
             if prev.custom_title:
                 ch.title, ch.custom_title = prev.title, True
             if prev.custom_number:

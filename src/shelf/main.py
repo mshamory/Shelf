@@ -91,7 +91,7 @@ def visible_chapters(session: Session, novel_id: int, include_hidden: bool = Fal
                Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.hidden,
                Chapter.url, Chapter.auto_title, Chapter.auto_number, Chapter.custom_title,
                Chapter.custom_number, Chapter.custom_season,
-               Chapter.origin).where(Chapter.novel_id == novel_id)
+               Chapter.origin, Chapter.duplicate).where(Chapter.novel_id == novel_id)
     if not include_hidden:
         q = q.where(Chapter.hidden == False)  # noqa: E712
     return session.exec(q.order_by(Chapter.position)).all()

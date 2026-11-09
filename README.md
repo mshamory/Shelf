@@ -29,8 +29,13 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   by that number. A post covering several chapters (`Chapter 96-97`, `Ch. 7 & 8`) counts for
   all of them; in novels that number parts as `Chapter 3-1`, `3-2`, a dash means a part.
   Error pages, near-empty pages and duplicate captures (including a post captured again
-  under a new URL after it was renamed) are skipped, and the site name and series name
-  repeated in every chapter title are removed.
+  under a new URL after it was renamed) are skipped. When one chapter number was captured
+  more than once (e.g. from two sites), one copy is shown and the others are hidden and
+  marked *duplicate*, so you can switch. A copy much shorter than the others (a stub) is
+  never preferred; otherwise the site with the most chapters wins. Site names, series names
+  and aggregator "Read … Online" text in chapter titles are removed; when every page is titled
+  with just the site name, the chapter's own heading is used. Chapters titled with a
+  repeated word and a number ("Patron 12", "Volume 3") are numbered by it.
 - **NovelUpdates metadata**: title, cover, description, authors, genres, tags, rating, status,
   associated names, and so on.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment

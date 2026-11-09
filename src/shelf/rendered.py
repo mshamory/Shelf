@@ -44,6 +44,7 @@ class RenderedChapter:
     text_length: int
     number: float
     ts: str
+    page_url: str = ""  # the page whose text held it
 
 
 def _is_noise(line: str) -> bool:
@@ -121,5 +122,5 @@ def chapters_from_page_texts(texts: list[tuple[str, str, str]]) -> list[Rendered
             prev = best.get(number)
             if prev is None or n > prev.text_length:
                 best[number] = RenderedChapter(_chapter_url(url, number), heading, content,
-                                               n, number, ts)
+                                               n, number, ts, url)
     return [best[k] for k in sorted(best)]

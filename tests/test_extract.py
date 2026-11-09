@@ -195,3 +195,70 @@ def test_renamed_post_captured_twice_is_kept_once():
         classify(c, "")
     assert [c.title for c in drop_renamed_duplicates(chapters)] == [
         "Chapter 692: Form", "Chapter 693"]
+
+
+def test_aggregator_titles_are_cleaned():
+    from shelf.library import clean_seo_title
+
+    assert clean_seo_title("#Chapter 1: Old Devil (1) - Read Emperor's Domination Chapter 1: "
+                           "Old Devil (1) Online - All Page - Novel Bin") == "Chapter 1: Old Devil (1)"
+    assert clean_seo_title("Series Name #Prologue - Read Series Name Prologue Online") == "Prologue"
+    assert clean_seo_title("Chapter #12 - Read the Room") == "Chapter #12 - Read the Room"
+
+
+def _ec(title, html="", url="https://ex.com/x", **kw):
+    from shelf.extract import ExtractedChapter
+
+    return ExtractedChapter(url=url, title=title, html=html, text_length=len(html), **kw)
+
+
+def test_site_name_titles_use_the_heading():
+    from shelf.library import promote_generic_titles
+
+    chapters = [_ec("SiteName", f"<h1>Ch. {n} - Name {n}</h1>My Series<p>Chapter {n}: Name {n}</p>"
+                    f"<p>Text {n}.</p>", url=f"https://ex.com/{n}") for n in (1, 2, 3)]
+    promote_generic_titles(chapters, "My Series")
+    assert [c.title for c in chapters] == ["Ch. 1 - Name 1", "Ch. 2 - Name 2", "Ch. 3 - Name 3"]
+    assert chapters[0].html == "<p>Text 1.</p>"
+
+
+def test_numbers_from_title_pattern():
+    from shelf.library import _numbers_from_title_pattern
+
+    chapters = [_ec(f"Patron {n}") for n in (1, 2, 3, 10)] + [_ec("Afterword")]
+    _numbers_from_title_pattern(chapters)
+    assert [c.number for c in chapters] == [1, 2, 3, 10, None]
+    few = [_ec("Patron 1"), _ec("Prologue"), _ec("Interlude")]
+    _numbers_from_title_pattern(few)
+    assert few[0].number is None
+
+
+def test_duplicate_captures_of_a_number_are_marked():
+    from shelf.library import mark_duplicates
+
+    a = [_ec(f"Chapter {n}", "x" * 5000, url=f"https://main.com/{n}", number=n) for n in (1, 2, 3)]
+    other = _ec("Chapter 2", "x" * 5000, url="https://other.com/2", number=2, ts="2027")
+    stub = _ec("Chapter 3", "x" * 500, url="https://main.com/3-stub", number=3, ts="2027")
+    mark_duplicates(a + [other, stub])
+    assert [c.duplicate for c in a] == [False, False, False]
+    assert other.duplicate and stub.duplicate
+
+
+def test_same_site_repeated_numbers_need_matching_text():
+    from shelf.library import mark_duplicates
+
+    parts = [_ec("Chapter 2 – Part " + str(i), '<p>' + f'Different text {i}. ' * 300 + '</p>',
+                 url=f"https://ex.com/ch-2-part-{i}", number=2) for i in (1, 2, 3)]
+    copy = [_ec("Chapter 9", f"<p>{'Same words here. ' * 300}</p>", url=u, number=9)
+            for u in ("https://ex.com/cchapter-9", "https://ex.com/chapter-9")]
+    mark_duplicates(parts + copy)
+    assert [c.duplicate for c in parts] == [False, False, False]
+    assert sum(c.duplicate for c in copy) == 1
+
+
+def test_part_after_chapter_number():
+    from shelf.extract import chapter_number
+
+    assert chapter_number("Chapter 191 Part 2") == 191.002
+    assert chapter_number("Chapter 12 (Part 1)") == 12.001
+    assert chapter_number("Part 2 Chapter 16") == 16

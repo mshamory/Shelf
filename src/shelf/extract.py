@@ -38,7 +38,7 @@ _NUM = r"(\d+(?:\.\d+)?)"
 CHAPTER_PATTERNS = [
     # In titles, "Chapter 207-2" is part 2 of chapter 207 and "Chapter 96-97" (or "Ch. 7 & 8",
     # "Chapters 7 to 9") covers several chapters; see chapter_span.
-    re.compile(rf"\b(?:chapters?|chaps?|chs?|episodes?|eps?)\s*[.#:\-]?\s*{_NUM}"
+    re.compile(rf"\b(?:chapters?|chpaters?|chaps?|chs?|episodes?|eps?)\s*[.#:\-]?\s*{_NUM}"
                r"(?:[-~](\d{1,4})\b(?!\.\d)"
                r"|\s*(?:&|\+|~|\band\b|\bto\b)\s*(?:(?:chapter|ch)\.?\s*)?(\d{1,4})\b(?!\.\d))?",
                re.I),
@@ -87,6 +87,7 @@ class ExtractedChapter:
     number_hint: float | None = None  # number from structured data (e.g. an XHR payload)
     number_end: float | None = None  # last chapter covered by a "Chapter 96-97" post
     range_kind: str = ""  # see ChapterSpan
+    duplicate: bool = False  # another capture of the same number was preferred
     source: str = "html"  # "html" page or "xhr" JSON payload
 
 
@@ -255,6 +256,8 @@ def page_title(html: str) -> str:
     return node.text(strip=True) if node else ""
 
 
+# "Chapter 191 Part 2", "Chapter 191 (Part 2)": part 2 of chapter 191, like "191-2".
+PART_AFTER_RE = re.compile(r"\s*[:\-–—(]?\s*\(?part\s*(\d{1,2})\b", re.I)
 # A range wider than this is more likely a typo or a compilation than one post.
 MAX_RANGE_SPAN = 20
 
@@ -301,8 +304,12 @@ def chapter_span(*candidates: str) -> ChapterSpan | None:
             m = pat.search(cand)
             if m:
                 span = _span(m, pat)
-                if span is not None:
-                    return span
+                if span is None:
+                    continue
+                part = PART_AFTER_RE.match(cand, m.end())
+                if part and span.end is None and span.number == int(span.number):
+                    span = ChapterSpan(span.number + int(part.group(1)) / 1000)
+                return span
     return None
 
 

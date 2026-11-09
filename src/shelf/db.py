@@ -70,6 +70,8 @@ class Chapter(SQLModel, table=True):
     content_html: str = Field(default="", sa_column=Column(Text))
     char_count: int = 0
     hidden: bool = False
+    # Another capture of the same chapter number was preferred; imported hidden.
+    duplicate: bool = False
     # "archive": imported from the WACZ (replaced on re-import); "browser": sent by the
     # browser extension (kept across re-imports, wins over archive chapters with its number).
     origin: str = "archive"
