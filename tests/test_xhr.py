@@ -201,3 +201,37 @@ def test_api_url_pairs_with_page_and_url_pattern_numbers(tmp_path):
     assert [(c.number, c.title) for c in parsed.chapters] == [
         (1, "Chapter 1"), (2, "Chapter 2: Full 2"), (3, "Chapter 3"), (4, "Chapter 4")]
     assert parsed.chapters[1].url == base + "2" and "Two" in parsed.chapters[1].html
+
+
+def test_placeholder_pages_and_unreadable_api_chapters(tmp_path):
+    html = "text/html; charset=utf-8"
+    base = "https://ex.com/series/s/"
+    api = "https://ex.com/api/v2/series/s/"
+
+    def api_body(n: int, **fields) -> bytes:
+        return json.dumps({"title": f"Chapter {n}", "number": n, **fields}).encode()
+
+    placeholder = (b"<html><head><title>Chapter 3</title></head><body><article>"
+                   b"<h2>Chapter 3</h2><p>Verifying access\xe2\x80\xa6</p>"
+                   + b"<p>Press the icon to customize your own theme colours and fonts.</p>" * 5
+                   + b"</article></body></html>")
+    records = [
+        {"url": base + "1", "status": 200, "body": chapter_html(1).encode(), "ctype": html},
+        {"url": base + "2", "status": 200, "body": chapter_html(2).encode(), "ctype": html},
+        # Rendered before the script decrypted the text.
+        {"url": base + "3", "status": 200, "body": placeholder, "ctype": html},
+        {"url": api + "3", "status": 200, "ctype": "application/json", "body": api_body(
+            3, content=["aGVsbG8=", "d29ybGQ="], content_format="encrypted")},
+        {"url": api + "4", "status": 200, "ctype": "application/json", "body": api_body(
+            4, content="A short teaser.", locked={"price": 10, "unlocked_at": None})},
+        {"url": base + "5", "status": 200, "body": chapter_html(5).encode(), "ctype": html},
+        # A teaser long enough to pass for a chapter, but the chapter is marked as paid.
+        {"url": api + "7", "status": 200, "ctype": "application/json", "body": api_body(
+            7, content=LONG, locked={"price": 10, "unlocked_at": None})},
+        {"url": api + "6", "status": 200, "ctype": "application/json", "body": api_body(
+            6, content="", content_format="locked")},
+    ]
+    pages = [{"url": base + str(n), "title": f"Chapter {n}"} for n in (1, 2, 3, 5)]
+    parsed = parse_wacz(write_wacz(tmp_path / "locked.wacz", records, pages))
+    assert [c.number for c in parsed.chapters] == [1, 2, 5]
+    assert parsed.unreadable == {3: "encrypted", 4: "locked", 6: "locked", 7: "locked"}

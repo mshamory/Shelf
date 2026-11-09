@@ -18,12 +18,14 @@ from .config import settings
 from .db import Chapter, Novel, get_engine, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
+    SIDE_SEASON,
     ExtractedChapter,
     chapter_number,
     classify,
     decode_html,
     extract_content,
     is_error_page,
+    is_placeholder,
     order_chapters,
     page_title,
     strip_common_affixes,
@@ -39,14 +41,14 @@ from .novelupdates import (
     parse_series_page,
 )
 from .wacz import Page, WaczFile, normalize_url
-from .xhr import extract_xhr_chapters
+from .xhr import scan_xhr
 
 log = logging.getLogger("shelf.library")
 
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "4"
+EXTRACTOR_VERSION = "5"
 
 
 @dataclass
@@ -56,6 +58,8 @@ class ParsedArchive:
     metadata: NovelMetadata | None = None
     cover: tuple[bytes, str] | None = None
     skipped: list[str] = field(default_factory=list)
+    # Chapter numbers seen in the archive without readable text -> reason (see xhr.py).
+    unreadable: dict[int, str] = field(default_factory=dict)
 
 
 def _page_from_capture(
@@ -83,7 +87,7 @@ def _page_from_capture(
             continue
         content = extract_content(html, url)
         n = text_length(content) if content else 0
-        if not content or n < MIN_CHAPTER_CHARS:
+        if not content or n < MIN_CHAPTER_CHARS or is_placeholder(content):
             continue
         title = listed_title if listed_title and not is_error_page(listed_title, 200) else ""
         return (title or own_title or url), content, n, entry.timestamp
@@ -237,7 +241,8 @@ def parse_wacz(path: Path) -> ParsedArchive:
         # JSON only holds a preview of a locked chapter.
         by_url = {_url_key(c.url): c for c in chapters}
         by_tail = {_url_tail(c.url): k for k, c in by_url.items()}
-        for x in extract_xhr_chapters(w):
+        xhr = scan_xhr(w)
+        for x in xhr.chapters:
             key = _url_key(x.url)
             if key not in by_url and _url_tail(x.url) in by_tail:
                 # An API URL for a page we have: /api/v2/series/s/12 <-> /series/s/12
@@ -283,9 +288,18 @@ def parse_wacz(path: Path) -> ParsedArchive:
             if resp and resp.status == 200 and resp.mime.startswith("image/"):
                 cover = (resp.body, resp.mime)
 
+        chapters = order_chapters(chapters)
+        # Payload numbers carry no season, so only report them for single-season novels.
+        unreadable: dict[int, str] = {}
+        if all(c.season in (None, SIDE_SEASON) for c in chapters):
+            present = {int(c.number) for c in chapters
+                       if c.number is not None and c.season is None}
+            unreadable = {n: r for n, r in sorted(xhr.unavailable.items()) if n not in present}
+
         return ParsedArchive(
             archive_title=w.title,
-            chapters=order_chapters(chapters),
+            unreadable=unreadable,
+            chapters=chapters,
             metadata=metadata,
             cover=cover,
             skipped=skipped,
@@ -352,6 +366,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
 
     novel.import_error = None if parsed.chapters else "No chapters found in this archive"
     novel.archive_title = parsed.archive_title
+    novel.unreadable_chapters = {str(n): r for n, r in parsed.unreadable.items()}
     if not novel.metadata_source:
         novel.title = parsed.archive_title or path.stem.replace("_", " ").replace("-", " ")
 

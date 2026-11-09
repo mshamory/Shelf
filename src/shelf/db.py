@@ -41,6 +41,9 @@ class Novel(SQLModel, table=True):
     original_publisher: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     english_publisher: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
+    # Chapters the archive mentions but holds no readable text for: {"1009": "encrypted"}
+    unreadable_chapters: dict[str, str] = Field(default_factory=dict, sa_column=Column(JSON))
+
     # Reading progress
     last_chapter_id: int | None = None
     last_position: float = 0.0  # scroll fraction within the chapter

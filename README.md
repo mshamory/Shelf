@@ -14,6 +14,10 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   captured JSON. This covers SvelteKit `__data.json`, Nuxt `_payload.json`, Next.js
   `_next/data` and plain JSON APIs, with chapter bodies in HTML, plain text, ProseMirror/TipTap
   or Editor.js format. Hidden anti-scraping text and invisible zero-width watermarks are removed.
+- **Missing chapters**: numbering gaps are listed in the contents and the reader, with the
+  reason when the archive shows one: not captured, locked with only a preview, or captured only
+  in encrypted form (Shelf doesn't decrypt site-protected content). Pages captured before their
+  text loaded ("Verifying access…") are skipped.
 - **Chapter extraction**: main-content extraction removes navigation, share buttons, comments
   and so on. Chapters are numbered (`Chapter 12`, `Ch. 7.5`, `第12章`, `/ch-12/` …) and ordered
   by that number. Error pages, near-empty pages and duplicate captures are skipped, and the

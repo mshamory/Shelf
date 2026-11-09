@@ -19,7 +19,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
 
-from .extract import MIN_CHAPTER_CHARS, remove_hidden, sanitize, text_length
+from .extract import (
+    MIN_CHAPTER_CHARS,
+    chapter_number,
+    is_placeholder,
+    remove_hidden,
+    sanitize,
+    text_length,
+)
 from .wacz import WaczFile
 
 log = logging.getLogger("shelf.xhr")
@@ -31,6 +38,22 @@ NUMBER_KEYS = ("number", "chapter_number", "chapterNumber", "chapter_no", "chapt
 URL_KEYS = ("url", "link", "permalink", "canonical_url")
 MIN_RECORD_BYTES = 0  # CDX lengths are compressed sizes; filtering on them is unreliable
 MAX_RECORD_BYTES = 20 * 1024 * 1024
+# Text of a chapter marked locked/encrypted this short is a teaser, not the chapter.
+LOCKED_PREVIEW_MAX_CHARS = 1500
+
+
+# Why a chapter seen in a payload has no readable text, most informative first.
+UNAVAILABLE_REASONS = {
+    "encrypted": "only encrypted text was captured",
+    "locked": "locked; only a preview was captured",
+    "preview": "only a preview was captured",
+}
+
+
+@dataclass
+class XhrScan:
+    chapters: list["XhrChapter"]
+    unavailable: dict[int, str]  # chapter number -> key of UNAVAILABLE_REASONS
 
 
 @dataclass
@@ -253,32 +276,73 @@ def _as_number(v) -> float | None:
     return None
 
 
-def find_chapter_objects(obj, depth: int = 0) -> Iterator[tuple[dict, str]]:
-    """Yield (object, content_html) for chapter-like objects; doesn't descend into them."""
+def _walk(obj, depth: int = 0) -> Iterator[tuple[dict, str | None]]:
+    """Yield (object, cleaned content or None) for every object with a content field and a
+    title or number. Doesn't descend into them."""
     if depth > 12:
         return
     if isinstance(obj, dict):
         title = _first(obj, TITLE_KEYS)
         number = _as_number(_first(obj, NUMBER_KEYS))
-        if isinstance(title, str) or number is not None:
-            for key in CONTENT_KEYS:
-                if key not in obj:
-                    continue
+        keys = [k for k in CONTENT_KEYS if k in obj]
+        if keys and (isinstance(title, str) or number is not None):
+            for key in keys:
                 converted = content_to_html(obj[key])
                 if converted:
                     cleaned = sanitize(remove_hidden(converted))
-                    if text_length(cleaned) >= MIN_CHAPTER_CHARS:
+                    n = text_length(cleaned)
+                    if n >= MIN_CHAPTER_CHARS and not is_placeholder(cleaned) and not (
+                            n < LOCKED_PREVIEW_MAX_CHARS and unavailable_reason(obj) != "preview"):
                         yield obj, cleaned
                         return
+            yield obj, None
+            return
         for v in obj.values():
-            yield from find_chapter_objects(v, depth + 1)
+            yield from _walk(v, depth + 1)
     elif isinstance(obj, list):
         for v in obj:
-            yield from find_chapter_objects(v, depth + 1)
+            yield from _walk(v, depth + 1)
+
+
+def find_chapter_objects(obj) -> Iterator[tuple[dict, str]]:
+    """Yield (object, content_html) for chapter-like objects with readable content."""
+    for o, content in _walk(obj):
+        if content is not None:
+            yield o, content
+
+
+def object_number(obj: dict) -> float | None:
+    number = _as_number(_first(obj, NUMBER_KEYS))
+    if number is None:
+        title = _first(obj, TITLE_KEYS)
+        number = chapter_number(title) if isinstance(title, str) else None
+    return number
+
+
+def unavailable_reason(obj: dict) -> str:
+    """Why a chapter object has no readable text: encrypted, locked or preview."""
+    fmt = str(obj.get("content_format") or obj.get("format") or "").lower()
+    content = next((obj[k] for k in CONTENT_KEYS if k in obj), None)
+    if "encrypt" in fmt or obj.get("encrypted") is True or (
+            isinstance(content, list) and content and all(isinstance(x, str) for x in content)):
+        return "encrypted"
+    locked = obj.get("locked", obj.get("is_locked"))
+    if fmt == "locked" or locked is True or (
+            isinstance(locked, dict) and (locked.get("price") or 0) > 0
+            and not locked.get("unlocked_at")):
+        return "locked"
+    return "preview"
 
 
 def extract_xhr_chapters(w: WaczFile) -> list[XhrChapter]:
+    return scan_xhr(w).chapters
+
+
+def scan_xhr(w: WaczFile) -> XhrScan:
+    """Chapters in captured JSON, plus chapters seen there without readable text."""
     found: dict[str, XhrChapter] = {}
+    unavailable: dict[int, str] = {}
+    rank = list(UNAVAILABLE_REASONS)
     scanned = 0
     for url in w.urls():
         # Try captures best-first: a newer capture may be an error payload
@@ -295,7 +359,17 @@ def extract_xhr_chapters(w: WaczFile) -> list[XhrChapter]:
                 continue
             scanned += 1
             data, page = decode_payload(url, resp.body)
-            found_here = list(find_chapter_objects(data)) if data is not None else []
+            found_here = []
+            for obj, content in _walk(data) if data is not None else ():
+                if content is not None:
+                    found_here.append((obj, content))
+                    continue
+                number = object_number(obj)
+                if number is not None and number >= 0:
+                    reason = unavailable_reason(obj)
+                    prev = unavailable.get(int(number))
+                    if prev is None or rank.index(reason) < rank.index(prev):
+                        unavailable[int(number)] = reason
             total = sum(text_length(c) for _o, c in found_here)
             if total > best_len:
                 objects, entry, page_url, best_len = found_here, cap, page, total
@@ -322,5 +396,6 @@ def extract_xhr_chapters(w: WaczFile) -> list[XhrChapter]:
             prev = found.get(chapter_url)
             if prev is None or chapter.ts > prev.ts:
                 found[chapter_url] = chapter
-    log.info("Scanned %d JSON responses, found %d chapters", scanned, len(found))
-    return list(found.values())
+    log.info("Scanned %d JSON responses, found %d chapters (%d unreadable)",
+             scanned, len(found), len(unavailable))
+    return XhrScan(list(found.values()), unavailable)

@@ -59,6 +59,15 @@ SIDE_LABEL = "Side stories"
 
 MIN_CHAPTER_CHARS = 300
 
+# Pages captured before the site's script filled in the chapter ("Verifying access…").
+PLACEHOLDER_RE = re.compile(
+    r"\b(verifying (your )?access|checking (your )?access|decrypting|loading (the )?chapter"
+    r"|unlock (this|the) chapter|this chapter is locked|purchase (this|the) chapter"
+    r"|log ?in to (read|unlock)|sign in to (read|unlock))\b",
+    re.I,
+)
+PLACEHOLDER_MAX_CHARS = 1500
+
 
 @dataclass
 class ExtractedChapter:
@@ -285,6 +294,14 @@ def is_error_page(title: str, status: int) -> bool:
         return True
     # "Chapter 404" is a chapter, not an error page.
     return chapter_number(title or "") is None and bool(ERROR_TITLE_RE.search(title or ""))
+
+
+def is_placeholder(html: str) -> bool:
+    """A short page whose text says the chapter is still loading, locked or being verified."""
+    if text_length(html) > PLACEHOLDER_MAX_CHARS:
+        return False
+    text = re.sub(r"<[^>]+>", " ", html)
+    return bool(PLACEHOLDER_RE.search(text))
 
 
 _SEP_CHARS = " |–—-:»·"

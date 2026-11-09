@@ -49,11 +49,15 @@
     <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at[:10] }}{% endif %}</small>
   </footer>
 </div>
-{% if gap_ahead %}
-<p class="gap-notice" role="note">
-  Chapter{{ 's' if gap_ahead.size > 1 }} {{ gap_ahead.label }} {{ 'are' if gap_ahead.size > 1 else 'is' }} not in the archive;
-  the next chapter skips ahead.
-</p>
+{% if gaps_ahead %}
+<div class="gap-notice" role="note">
+  {% if next_id %}The next chapter skips ahead.{% else %}More chapters exist, but the archive can't show them.{% endif %}
+  <ul>
+    {% for g in gaps_ahead %}
+    <li>Chapter{{ 's' if g.size > 1 }} {{ g.label }}: {{ g.description }}</li>
+    {% endfor %}
+  </ul>
+</div>
 {% endif %}
 <nav class="chapter-nav">
   {% if prev_id %}<a role="button" class="secondary outline" href="/chapter/{{ prev_id }}" rel="prev">← Previous</a>{% else %}<span></span>{% endif %}

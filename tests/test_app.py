@@ -96,10 +96,10 @@ def test_missing_chapters_are_reported(client):
     scan_library()
     assert "6 missing" in client.get("/").text
     page = client.get("/novel/1").text
-    assert "6 chapters possibly missing" in page
-    assert "Missing: chapters 4–9" in page
-    assert "Chapters 4–9 are not in the archive" in client.get("/chapter/3").text
-    assert "not in the archive" not in client.get("/chapter/2").text
+    assert "6 chapters missing" in page
+    assert "Missing: chapters 4–9 <small>(not captured)" in page
+    assert "Chapters 4–9: not captured" in client.get("/chapter/3").text
+    assert "skips ahead" not in client.get("/chapter/2").text
 
 
 def test_trim_rules(client):
