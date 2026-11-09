@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import html as html_lib
 import logging
 import mimetypes
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sqlmodel import Session, select
 
@@ -16,6 +19,7 @@ from .db import Chapter, Novel, get_engine, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     ExtractedChapter,
+    chapter_number,
     classify,
     decode_html,
     extract_content,
@@ -35,13 +39,14 @@ from .novelupdates import (
     parse_series_page,
 )
 from .wacz import Page, WaczFile, normalize_url
+from .xhr import extract_xhr_chapters
 
 log = logging.getLogger("shelf.library")
 
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "3"
+EXTRACTOR_VERSION = "4"
 
 
 @dataclass
@@ -83,6 +88,93 @@ def _page_from_capture(
         title = listed_title if listed_title and not is_error_page(listed_title, 200) else ""
         return (title or own_title or url), content, n, entry.timestamp
     return None
+
+
+def _url_key(url: str) -> str:
+    return normalize_url(url).rstrip("/")
+
+
+def _url_tail(url: str) -> tuple[str, ...]:
+    """Host plus the last two path segments, to pair API URLs with page URLs."""
+    parts = urlsplit(normalize_url(url))
+    segments = [s for s in parts.path.split("/") if s]
+    return (parts.netloc.lower(), *segments[-2:]) if len(segments) >= 2 else (url,)
+
+
+BARE_TITLE_RE = re.compile(r"(?:chapter|chap\.?|ch\.?|episode|ep\.?)\s*[\d.\-]+", re.I)
+_LEADING_BLOCK_RE = re.compile(r"\s*(<(p|h[1-6])>(.*?)</\2>|<img[^>]*>|<br>)", re.S)
+
+
+def _promote_heading(title: str, content: str) -> tuple[str, str]:
+    """Use a fuller heading from the start of the text as the title.
+
+    "Chapter 10" + "<p>Chapter 10: Wow…</p>" -> title "Chapter 10: Wow…", and that line (plus
+    any logo/heading clutter before it) is removed from the text. Looks at the first few
+    blocks only.
+    """
+    base = re.sub(r"\s+", " ", title).strip()
+    pos = 0
+    for _ in range(4):
+        m = _LEADING_BLOCK_RE.match(content, pos)
+        if not m:
+            break
+        pos = m.end()
+        if m.group(2) is None:
+            continue  # image or line break
+        text = html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(3)))
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            continue
+        if base and text.casefold().startswith(base.casefold()):
+            rest = text[len(base):].strip(" :-–—|.")
+            if rest and len(text) <= 200 and not BARE_TITLE_RE.fullmatch(rest):
+                return text, content[pos:].lstrip()
+            if not rest or BARE_TITLE_RE.fullmatch(rest):
+                continue  # "Chapter 678 : Chapter 678" - keep looking
+        elif not base and len(text) <= 200 and chapter_number(text) is not None:
+            return text, content[pos:].lstrip()
+        if m.group(2) == "p":
+            break  # reached the body text
+    return title or "", content
+
+
+def _numbers_from_url_pattern(chapters: list[ExtractedChapter]) -> None:
+    """Number chapters by URL when the site uses /…/<number> and their title doesn't say.
+
+    Applies only if most numbered chapters follow that pattern under one parent path.
+    """
+    def split(url: str) -> tuple[str, str]:
+        path = urlsplit(url).path.rstrip("/")
+        parent, _, last = path.rpartition("/")
+        return parent, last
+
+    numbered = [c for c in chapters if c.number is not None]
+    matches: dict[str, int] = {}
+    for c in numbered:
+        parent, last = split(c.url)
+        if last.isdigit() and int(last) == int(c.number):
+            matches[parent] = matches.get(parent, 0) + 1
+    if not matches:
+        return
+    parent, count = max(matches.items(), key=lambda kv: kv[1])
+    if count < max(3, len(numbered) * 0.8):
+        return
+    for c in chapters:
+        if c.number is None and c.season is None:
+            p, last = split(c.url)
+            if p == parent and last.isdigit():
+                c.number = float(last)
+                if chapter_number(c.title) is None:
+                    c.title = f"Chapter {last}"  # the page title was generic
+
+
+def _strip_series_prefix(title: str, series: str) -> str:
+    """"Novel Name - Chapter 3: X" -> "Chapter 3: X" when the remainder has a number."""
+    series = series.strip()
+    if not series or not title.casefold().startswith(series.casefold()):
+        return title
+    rest = title[len(series):].lstrip(" |–—-:»·,")
+    return rest if rest and chapter_number(rest) is not None else title
 
 
 def parse_wacz(path: Path) -> ParsedArchive:
@@ -140,6 +232,28 @@ def parse_wacz(path: Path) -> ParsedArchive:
                 )
             )
 
+        # Chapters loaded by JavaScript live in captured JSON responses. Prefer them (they
+        # carry the real title/number) unless the HTML capture is much longer, e.g. when the
+        # JSON only holds a preview of a locked chapter.
+        by_url = {_url_key(c.url): c for c in chapters}
+        by_tail = {_url_tail(c.url): k for k, c in by_url.items()}
+        for x in extract_xhr_chapters(w):
+            key = _url_key(x.url)
+            if key not in by_url and _url_tail(x.url) in by_tail:
+                # An API URL for a page we have: /api/v2/series/s/12 <-> /series/s/12
+                key = by_tail[_url_tail(x.url)]
+            current = by_url.get(key)
+            if current is not None and current.text_length > x.text_length * 1.5:
+                continue
+            title, content = _promote_heading(x.title, x.html)
+            by_url[key] = ExtractedChapter(
+                url=current.url if current else x.url, title=title, html=content,
+                text_length=x.text_length, ts=x.ts, number_hint=x.number, source="xhr",
+            )
+        chapters = list(by_url.values())
+        found = {_url_key(c.url) for c in chapters}
+        skipped = [u for u in skipped if _url_key(u) not in found]
+
         # Drop duplicate captures of the same chapter (e.g. "/ch-12/" and "/ch-12-2/").
         seen: dict[str, ExtractedChapter] = {}
         for c in chapters:
@@ -150,8 +264,18 @@ def parse_wacz(path: Path) -> ParsedArchive:
 
         for c in chapters:
             classify(c, url_path_text(c.url))
-        for c, t in zip(chapters, strip_common_affixes([c.title for c in chapters]), strict=True):
-            c.title = t
+        _numbers_from_url_pattern(chapters)
+        # Clean titles per source: page titles share a site format ("Series - Ch 3 - Site"),
+        # titles from JSON payloads don't, and mixing them would dilute the vote.
+        for source in {c.source for c in chapters}:
+            group = [c for c in chapters if c.source == source]
+            for c, t in zip(group, strip_common_affixes([c.title for c in group]), strict=True):
+                c.title = t
+        series = (metadata.title if metadata else "") or w.title
+        for c in chapters:
+            c.title = _strip_series_prefix(c.title, series)
+            if c.source == "html" and BARE_TITLE_RE.fullmatch(c.title):
+                c.title, c.html = _promote_heading(c.title, c.html)
 
         cover = None
         if metadata and metadata.cover_url:

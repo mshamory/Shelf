@@ -27,7 +27,8 @@ ALLOWED_ATTRS = {"img": {"src", "alt", "title"}, "td": {"colspan", "rowspan"},
 ERROR_TITLE_RE = re.compile(
     r"^\s*(?:error|404|403|500|502|503)\b|"
     r"\b(?:page not found|not found|access denied|just a moment|attention required|"
-    r"error \d{3}|\d{3} error)\b",
+    r"error \d{3}|\d{3} error|making sure you(?:'|’)re not a bot|checking your browser|"
+    r"verify(?:ing)? (?:you are|that you are) (?:a )?human|ddos-guard)\b",
     re.I,
 )
 TITLE_SEPARATORS = re.compile(r"\s+[|–—\-:»·]\s+")
@@ -70,6 +71,8 @@ class ExtractedChapter:
     season: int | None = None  # detected season/part/book number, or SIDE_SEASON
     season_word: str = ""  # "Part", "Season", "Book", ...
     season_label: str = ""  # final grouping label ("Part 2"); empty when not split
+    number_hint: float | None = None  # number from structured data (e.g. an XHR payload)
+    source: str = "html"  # "html" page or "xhr" JSON payload
 
 
 def detect_charset(body: bytes, content_type: str = "") -> str:
@@ -87,7 +90,64 @@ def decode_html(body: bytes, content_type: str = "") -> str:
         return body.decode("utf-8", errors="replace")
 
 
+HIDDEN_STYLE_RE = re.compile(
+    r"display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?:px|em|rem|%)?\s*(?:;|$)|"
+    r"opacity\s*:\s*0(?:\.0+)?\s*(?:;|$)|(?:top|left|right|bottom)\s*:\s*-\d{3,}px|"
+    r"clip\s*:\s*rect\(\s*0",
+    re.I,
+)
+
+
+def is_hidden_style(declarations: str) -> bool:
+    if HIDDEN_STYLE_RE.search(declarations):
+        return True
+    # "Visually hidden" boxes: 1px wide/high with overflow clipped.
+    return bool(re.search(r"overflow\s*:\s*hidden", declarations, re.I)
+                and re.search(r"(?:width|height)\s*:\s*[01](?:px)?\s*(?:;|$)", declarations, re.I))
+
+
+_CSS_RULE_RE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+
+
+def remove_hidden(html: str) -> str:
+    """Drop elements a browser wouldn't show (anti-scraping junk, screen-reader-only text).
+
+    Handles inline styles, the `hidden`/`aria-hidden` attributes and classes that a
+    <style> block in the content hides. Sanitising removes styles, which would otherwise
+    reveal them.
+    """
+    if not re.search(r"aria-hidden|\bhidden\b|style", html, re.I):
+        return html
+    import lxml.html
+    from lxml import etree
+
+    root = lxml.html.fragment_fromstring(html, create_parent="div")
+    hidden_classes: set[str] = set()
+    for style in root.iter("style"):
+        for selectors, declarations in _CSS_RULE_RE.findall(style.text or ""):
+            if is_hidden_style(declarations):
+                for sel in selectors.split(","):
+                    m = re.fullmatch(r"\s*(?:[a-z0-9]*)\.([\w-]+)\s*", sel, re.I)
+                    if m:
+                        hidden_classes.add(m.group(1))
+    for el in list(root.iter()):
+        if el is root or not isinstance(el.tag, str) or el.getparent() is None:
+            continue
+        if (el.tag in ("style", "script") or el.get("aria-hidden") == "true"
+                or el.get("hidden") is not None or is_hidden_style(el.get("style") or "")
+                or hidden_classes.intersection((el.get("class") or "").split())):
+            el.drop_tree()
+    return (root.text or "") + "".join(
+        etree.tostring(c, encoding="unicode", method="html") for c in root)
+
+
+# Runs of zero-width characters are invisible fingerprints some sites weave into the text.
+# Single ones are legitimate (emoji sequences, some scripts), so only runs are removed.
+ZERO_WIDTH_RUN_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]{3,}")
+
+
 def sanitize(html: str) -> str:
+    html = ZERO_WIDTH_RUN_RE.sub("", html)
     return nh3.clean(
         html,
         tags=ALLOWED_TAGS,
@@ -203,6 +263,8 @@ def side_story_number(title: str) -> float | None | bool:
 def classify(chapter: ExtractedChapter, path_text: str) -> None:
     """Fill in number/season for a chapter from its title and URL path."""
     chapter.number = chapter_number(chapter.title, path_text)
+    if chapter.number_hint is not None:
+        chapter.number = chapter.number_hint
     if chapter.number is not None:
         season = chapter_season(chapter.title, path_text)
         if season:
@@ -236,8 +298,12 @@ def strip_common_affixes(titles: list[str]) -> list[str]:
     """
     if len(titles) < 2:
         return titles
-    threshold = max(2, int(len(titles) * 0.6))
-    out = list(titles)
+    out = [re.sub(r"\s+", " ", t).strip() for t in titles]
+    # Only titles that have segments can share one; mixed sources (e.g. "Chapter 3: X" from
+    # an API next to "Series - Chapter 4 - Site" pages) shouldn't dilute the vote.
+    segmented = sum(1 for t in out if len(TITLE_SEPARATORS.split(t)) > 1)
+    threshold = max(2, int(len(titles) * 0.6)) if segmented == len(out) else \
+        max(2, int(segmented * 0.6))
     for _ in range(5):
         changed = False
         last, first = Counter(), Counter()
