@@ -151,3 +151,35 @@ def test_reimport_reextracts_captures(client, monkeypatch):  # noqa: F811
     monkeypatch.setattr(capture, "extract_page", improved)
     client.post(f"/novel/{nid}/reimport")
     assert "Chapter 5: Stop 5 (improved)" in client.get(f"/novel/{nid}").text
+
+
+def test_delete_novel_without_chapters(client):  # noqa: F811
+    from shelf.config import settings
+    from shelf.library import scan_library
+
+    nid = client.post("/api/novels", json={"title": "Empty One"}).json()["novel"]["id"]
+    assert "Delete this novel" in client.get(f"/novel/{nid}").text
+    r = client.post(f"/novel/{nid}/delete", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/?msg=")
+    assert client.get(f"/novel/{nid}").status_code == 404
+
+    # Novels with chapters (even hidden ones) can't be deleted.
+    build_wacz(settings.library_dir / "night-train.wacz")
+    scan_library()
+    full = client.get("/api/novels").json()["novels"][0]["id"]
+    assert "Delete this novel" not in client.get(f"/novel/{full}").text
+    r = client.post(f"/novel/{full}/delete", follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    assert client.get(f"/novel/{full}").status_code == 200
+
+    # An archive nothing could be imported from: delete the novel and, optionally, the file.
+    bad = settings.library_dir / "broken.wacz"
+    bad.write_bytes(b"not a zip")
+    scan_library()
+    broken = next(n["id"] for n in client.get("/api/novels").json()["novels"]
+                  if n["chapters"] == 0)
+    assert "Also delete the archive file" in client.get(f"/novel/{broken}").text
+    client.post(f"/novel/{broken}/delete", data={"delete_file": "true"})
+    assert not bad.exists()
+    scan_library()
+    assert all(n["chapters"] for n in client.get("/api/novels").json()["novels"])

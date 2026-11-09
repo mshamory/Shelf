@@ -146,3 +146,7 @@ body { background: var(--pico-background-color); }
 .edit-chapter-form input, .edit-chapter-form select { margin: .2rem 0 0; padding-block: .3rem; height: auto; }
 .edit-actions { display: flex; gap: .4rem; grid-column: 1 / -1; }
 @media (max-width: 576px) { .edit-chapter-form, .edit-chapter-form:has(select) { grid-template-columns: 1fr; } }
+
+.delete-novel { margin: 1rem 0; padding: .5rem 1rem; border-left: 4px solid var(--pico-del-color, #c0392b);
+  background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); }
+.delete-novel summary { color: var(--pico-del-color, #c0392b); }

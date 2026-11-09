@@ -32,7 +32,14 @@ from .config import settings
 from .db import Chapter, Novel, TrimRule, get_session, has_archive, init_db, utcnow
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
-from .library import apply_metadata, import_wacz, resequence, scan_status, start_scan
+from .library import (
+    apply_metadata,
+    delete_captures,
+    import_wacz,
+    resequence,
+    scan_status,
+    start_scan,
+)
 from .novelupdates import MetadataError, fetch_series, is_series_url, parse_series_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 
@@ -202,7 +209,10 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         request,
         "novel.html",
         {"novel": novel, "chapters": chapters, "last": last, "show_hidden": hidden,
-         "hidden_count": hidden_count, "gaps": gaps, "missing_total": missing_count(gaps),
+         "hidden_count": hidden_count, "gaps": gaps,
+         "total_chapters": (len(chapters) if hidden else len(chapters) + hidden_count),
+         "archive_exists": has_archive(novel)
+         and (settings.library_dir / novel.wacz_path).is_file(), "missing_total": missing_count(gaps),
          "missing_reasons": reason_counts(gaps),
          "gaps_before": gaps_before(chapters, gaps),
          "first_number": int(min(numbered)) if numbered else None,
@@ -272,6 +282,35 @@ async def reimport(session: SessionDep, novel_id: int):
     if novel.import_error:
         return flash_redirect(f"/novel/{novel_id}", novel.import_error, error=True)
     return flash_redirect(f"/novel/{novel_id}", f"Re-imported {len(novel.chapters)} chapters")
+
+
+@app.post("/novel/{novel_id}/delete")
+def delete_novel(session: SessionDep, novel_id: int,
+                 delete_file: Annotated[bool, Form()] = False):
+    """Delete a novel that has no chapters (e.g. created from NovelUpdates but never filled,
+    or an archive nothing could be imported from)."""
+    novel = get_novel(session, novel_id)
+    count = session.exec(select(func.count(Chapter.id)).where(Chapter.novel_id == novel_id)).one()
+    if count:
+        return flash_redirect(f"/novel/{novel_id}",
+                              "Only novels without chapters can be deleted", error=True)
+    title = novel.title
+    if has_archive(novel):
+        path = (settings.library_dir / novel.wacz_path).resolve()
+        if delete_file and path.is_file() and path.is_relative_to(settings.library_dir.resolve()):
+            try:
+                path.unlink()
+            except OSError as e:
+                return flash_redirect(f"/novel/{novel_id}",
+                                      f"Couldn't delete the archive file: {e.strerror}", error=True)
+    if novel.cover_file:
+        (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
+    delete_captures(novel.id)
+    for rule in session.exec(select(TrimRule).where(TrimRule.novel_id == novel_id)).all():
+        session.delete(rule)
+    session.delete(novel)
+    session.commit()
+    return flash_redirect("/", f"Deleted “{title}”")
 
 
 @app.post("/novel/{novel_id}/progress/reset")

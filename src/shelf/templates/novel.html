@@ -111,6 +111,20 @@
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
     </div>
   </header>
+  {% if not total_chapters %}
+  <details class="delete-novel">
+    <summary>Delete this novel</summary>
+    <form method="post" action="/novel/{{ novel.id }}/delete">
+      <p>It has no chapters. Its metadata, cover and trim rules will be deleted.</p>
+      {% if archive_exists %}
+      <label><input type="checkbox" name="delete_file" value="true">
+        Also delete the archive file <code>{{ novel.wacz_path }}</code></label>
+      <p class="muted"><small>If the file stays, it's imported again on the next scan.</small></p>
+      {% endif %}
+      <button type="submit" class="secondary small">Delete “{{ novel.title }}”</button>
+    </form>
+  </details>
+  {% endif %}
   {% if gaps or (first_number and first_number > 1) %}
   <details class="missing-summary">
     <summary>
