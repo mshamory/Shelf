@@ -45,6 +45,9 @@ from .novelupdates import (
     parse_series_page,
 )
 from .rendered import chapters_from_page_texts, looks_like_prose
+from .rsc import RSC_MIME
+from .rsc import page_url as rsc_page_url
+from .rsc import render_page as render_rsc
 from .wacz import Page, WaczFile, normalize_url
 from .xhr import scan_xhr
 
@@ -53,7 +56,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "9"
+EXTRACTOR_VERSION = "10"
 
 
 @dataclass
@@ -85,20 +88,56 @@ def _page_from_capture(
         html = decode_html(resp.body, resp.headers.get("content-type", ""))
         if looks_like_series_page(html):
             return html
-        own_title = page_title(html)
-        # Judge the response by its own title: pages.jsonl titles can be stale
-        # (e.g. "Just a moment..." recorded before a challenge resolved).
-        if is_error_page(own_title, resp.status):
+        found = _chapter_from_html(html, url, resp.status)
+        if found is None:
             continue
-        content = extract_content(html, url)
-        n = text_length(content) if content else 0
-        if not content or n < MIN_CHAPTER_CHARS or is_placeholder(content):
-            continue
-        if n < SHORT_PAGE_CHARS and not looks_like_prose(_text_lines(content)):
-            continue  # a short page of links/promos, e.g. a chapter page before it loaded
+        own_title, content, n = found
         title = listed_title if listed_title and not is_error_page(listed_title, 200) else ""
         return (title or own_title or url), content, n, entry.timestamp
     return None
+
+
+def _chapter_from_html(html: str, url: str, status: int) -> tuple[str, str, int] | None:
+    """(own title, content_html, text_length) if the page holds real chapter content."""
+    own_title = page_title(html)
+    # Judge the response by its own title: pages.jsonl titles can be stale
+    # (e.g. "Just a moment..." recorded before a challenge resolved).
+    if is_error_page(own_title, status):
+        return None
+    content = extract_content(html, url)
+    n = text_length(content) if content else 0
+    if not content or n < MIN_CHAPTER_CHARS or is_placeholder(content):
+        return None
+    if n < SHORT_PAGE_CHARS and not looks_like_prose(_text_lines(content)):
+        return None  # a short page of links/promos, e.g. a chapter page before it loaded
+    return own_title, content, n
+
+
+def rsc_chapters(w: WaczFile) -> list[ExtractedChapter]:
+    """Chapters reached by navigating inside a Next.js site: the archive holds the page's
+    React Server Components payload (``…/chapter-2?_rsc=…``) rather than an HTML page."""
+    best: dict[str, ExtractedChapter] = {}
+    for url in w.urls():
+        page = rsc_page_url(url)
+        if page is None:
+            continue
+        for entry in w.captures(url):
+            if entry.mime not in (RSC_MIME, "") or not 200 <= entry.status < 300:
+                continue
+            resp = w.read(entry)
+            if resp is None or resp.mime not in (RSC_MIME, ""):
+                continue
+            doc = render_rsc(resp.body)
+            found = _chapter_from_html(doc, page, resp.status) if doc else None
+            if found is None:
+                continue
+            title, content, n = found
+            key = normalize_url(page)
+            prev = best.get(key)
+            if prev is None or n > prev.text_length:
+                best[key] = ExtractedChapter(url=key, title=title or key, html=content,
+                                             text_length=n, ts=entry.timestamp)
+    return list(best.values())
 
 
 def _url_key(url: str) -> str:
@@ -419,6 +458,12 @@ def parse_wacz(path: Path) -> ParsedArchive:
                     ts=page.ts or captured,
                 )
             )
+
+        # Next.js chapters opened from another chapter: only the RSC payload was captured.
+        have = {_url_key(c.url) for c in chapters}
+        for c in rsc_chapters(w):
+            if _url_key(c.url) not in have:
+                chapters.append(c)
 
         # Chapters loaded by JavaScript live in captured JSON responses. Prefer them (they
         # carry the real title/number) unless the HTML capture is much longer, e.g. when the

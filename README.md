@@ -14,6 +14,10 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   captured JSON. This covers SvelteKit `__data.json`, Nuxt `_payload.json`, Next.js
   `_next/data`, Patreon post data and plain JSON APIs, with chapter bodies in HTML, plain text,
   ProseMirror/TipTap or Editor.js format. Hidden anti-scraping text and invisible zero-width watermarks are removed.
+- **Chapters opened from another chapter (Next.js App Router)**: clicking "next chapter" on
+  these sites fetches `…/chapter-2?_rsc=…` (a React Server Components payload) instead of
+  a page. Shelf rebuilds the page from that payload and extracts it like an archived page.
+  Link prefetches carry no chapter text and are ignored.
 - **Chapters from the rendered page**: when a chapter's network response isn't readable (e.g.
   the site sends it encrypted and its script fills in the page), Shelf uses the text the
   browser displayed, which ArchiveWeb.page and Browsertrix save with each page. Site menus,
