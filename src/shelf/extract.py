@@ -182,8 +182,36 @@ def _strip_wrapper(html: str) -> str:
     return body.inner_html if body is not None else html
 
 
+# A page whose one <article> holds this share of the extracted text: extract the article
+# alone, so promo boxes and "more stories" around it don't come along.
+ARTICLE_SHARE = 0.85
+
+
+def _sole_article(html: str) -> str | None:
+    """The page reduced to its only <article> (with the page's <title>), or None."""
+    if "<article" not in html:
+        return None
+    tree = HTMLParser(html)
+    articles = tree.css("article")
+    if len(articles) != 1:
+        return None
+    title = tree.css_first("title")
+    head = title.html if title is not None else ""
+    return f"<html><head>{head}</head><body>{articles[0].html}</body></html>"
+
+
 def extract_content(html: str, url: str | None = None) -> str | None:
     """Return sanitised HTML of the page's main content, or None."""
+    content = _extract(html, url)
+    if content:
+        article = _sole_article(html)
+        inner = _extract(article, url) if article else None
+        if inner and text_length(inner) >= ARTICLE_SHARE * text_length(content):
+            return inner
+    return content
+
+
+def _extract(html: str, url: str | None = None) -> str | None:
     best: str | None = None
     # Recall mode keeps paragraph structure best on typical WordPress/translator sites;
     # fall back to the default (balanced) mode if it finds nothing.

@@ -87,6 +87,12 @@ function shelfCapture(selectionOnly) {
     } else {
       clone = document.documentElement.cloneNode(true);
     }
+    // Sites that set the tab title from script may have no <title> element to clone.
+    if (!clone.querySelector("title") && document.title) {
+      const title = document.createElement("title");
+      title.textContent = document.title;
+      (clone.querySelector("head") || clone).prepend(title);
+    }
     clone.querySelectorAll(`[${MARK}]`).forEach((el) => el.remove());
     clone.querySelectorAll(`[${BEFORE}]`).forEach((el) => {
       el.prepend(el.getAttribute(BEFORE));

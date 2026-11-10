@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from sqlmodel import Session, select
 
 from .db import BROWSER_PREFIX, Chapter, Novel, utcnow
@@ -96,7 +97,11 @@ def extract_page(url: str, html: str, series: str) -> ExtractedChapter:
         raise CaptureError("The chapter hasn't finished loading (the page still shows a "
                            "placeholder). Wait until the text is visible and try again.")
     title = clean_title(own_title, url, html, series)
-    if not title or BARE_TITLE_RE.fullmatch(title) or chapter_number(title) is None:
+    heading = "" if title.strip() else _main_heading(html, series)
+    if heading:
+        # No <title> (the site sets it from script): the chapter's name is its <h1>.
+        title = heading
+    elif not title or BARE_TITLE_RE.fullmatch(title) or chapter_number(title) is None:
         title, content = _promote_heading(title if chapter_number(title) else "", content)
     chapter = ExtractedChapter(url=normalize_url(url), title=title or own_title or url,
                                html=content, text_length=text_length(content), ts="")
@@ -105,7 +110,18 @@ def extract_page(url: str, html: str, series: str) -> ExtractedChapter:
         last = urlsplit(url).path.rstrip("/").rpartition("/")[2]
         if last.isdigit():  # /series/name/1009
             chapter.number = float(last)
+    if heading and chapter.number is not None and chapter_number(heading) is None:
+        n = chapter.number
+        chapter.title = f"Chapter {int(n) if n == int(n) else n}: {heading}"
     return chapter
+
+
+def _main_heading(html: str, series: str) -> str:
+    """The page's one <h1>, unless it's just the series or site name."""
+    heads = [re.sub(r"\s+", " ", h.text()).strip()
+             for h in HTMLParser(remove_hidden(html)).css("h1")]
+    heads = [h for h in heads if h and len(h) <= 200 and h.casefold() != series.casefold()]
+    return heads[0] if len(heads) == 1 else ""
 
 
 def _season_for(chapter: ExtractedChapter, existing: list[Chapter]) -> tuple[int | None, str]:

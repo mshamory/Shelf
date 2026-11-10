@@ -249,3 +249,25 @@ def test_identify_novel_for_the_shortcut(client):  # noqa: F811
     assert r["identified"] == nid
     r = client.get("/api/novels", params={"url": "https://other.example/x/2"}).json()
     assert r["identified"] is None
+
+
+def test_page_without_title_uses_its_heading_and_article(client):  # noqa: F811
+    """A Next.js reader with no <title>: a "Chapter 9 · Volume 1" label, the chapter's name
+    in <h1>, promo boxes around the one <article> that holds the text."""
+    nid = client.post("/api/novels", json={"title": "Night Train"}).json()["novel"]["id"]
+    html = ("<html><head><meta charset='utf-8'></head><body><nav>Home / Night Train / "
+            "Chapter 9</nav><section><div><p>Chapter 9 · Volume 1</p></div>"
+            "<div><h1>The Last Stop</h1></div>"
+            "<p>Enjoying the story?</p><h2>Night Train</h2>"
+            "<p>Bookmark to keep track, or leave a rating to help others discover it.</p>"
+            f"<article>{PARA}{PARA.replace('night', 'dawn')}{PARA.replace('night', 'dusk')}"
+            "</article><p>Discover more stories you may enjoy based on what you are reading.</p>"
+            "</section><h2>Series You May Like</h2></body></html>")
+    r = client.post(f"/api/novels/{nid}/chapters", json={
+        "url": "https://haven.example/series/night-train/chapter-9", "html": html}).json()
+    assert r["chapter"]["title"] == "Chapter 9: The Last Stop"
+    assert r["chapter"]["number"] == 9
+    reader = client.get(r["chapter"]["url"]).text
+    assert "dusk" in reader
+    assert "Enjoying the story" not in reader and "Discover more" not in reader
+    assert "Volume 1" not in reader
