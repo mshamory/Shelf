@@ -260,6 +260,38 @@ def match_score(page_url: str, chapter_urls: list[str]) -> int:
     return best
 
 
+def _words(text: str) -> str:
+    return " " + " ".join(re.findall(r"[^\W_]+", text.casefold())) + " "
+
+
+def _names(novel: Novel) -> list[str]:
+    """The novel's title and alternative names, as words; short ones ("ED") are too vague."""
+    names = [novel.title, *(a for a in novel.alt_names or [] if isinstance(a, str))]
+    return [w for w in (_words(n) for n in names) if len(w.replace(" ", "")) >= 4]
+
+
+def identify_novel(url: str, page_title: str, scored: list[tuple[Novel, int]]) -> Novel | None:
+    """The novel a page surely belongs to, or None when it isn't clear.
+
+    A novel counts when its chapters sit in the same folder as the page (same host and
+    path up to the last segment), or when its title or an alternative name appears in the
+    page title or the URL. Only a single best candidate is returned.
+    """
+    parts = [p for p in urlsplit(url).path.split("/") if p]
+    in_title = _words(page_title)
+    in_url = _words(urlsplit(url).path)
+    best: list[tuple[tuple[bool, bool], Novel]] = []
+    for novel, score in scored:
+        by_folder = score > 0 and score >= len(parts)
+        by_name = any(n in in_title or n in in_url for n in _names(novel))
+        if by_folder or by_name:
+            best.append(((by_folder and by_name, by_folder), novel))
+    best.sort(key=lambda b: b[0], reverse=True)
+    if len(best) == 1 or (len(best) > 1 and best[0][0] > best[1][0]):
+        return best[0][1]
+    return None
+
+
 def refresh_captures(session: Session, novel: Novel) -> int:
     """Re-extract chapters sent from the browser from their saved pages (after extraction
     improves). Edited titles/numbers/seasons are kept. Returns how many were updated."""

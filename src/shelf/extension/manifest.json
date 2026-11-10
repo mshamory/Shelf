@@ -1,23 +1,55 @@
 {
   "manifest_version": 3,
   "name": "Shelf Capture",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Send the page you're reading, as displayed, to your Shelf library.",
   "action": {
     "default_title": "Send to Shelf",
     "default_popup": "popup.html",
-    "default_icon": {"16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png"}
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
   },
-  "icons": {"16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png"},
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["*://*.novelupdates.com/*"],
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.novelupdates.com/*"
+  ],
   "commands": {
     "_execute_action": {
-      "suggested_key": {"default": "Alt+Shift+S"},
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
       "description": "Send this page to Shelf"
+    },
+    "quick-send": {
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "Send this page to Shelf automatically (opens the menu if the novel or chapter isn't clear)"
     }
   },
   "browser_specific_settings": {
-    "gecko": {"id": "shelf-capture@shelf.local", "strict_min_version": "115.0"}
+    "gecko": {
+      "id": "shelf-capture@shelf.local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "service_worker": "background.js"
   }
 }

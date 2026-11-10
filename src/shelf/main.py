@@ -25,6 +25,7 @@ from .capture import (
     CaptureError,
     add_chapter,
     create_novel,
+    identify_novel,
     match_score,
     novel_by_nu_url,
 )
@@ -700,8 +701,9 @@ def _novel_json(novel: Novel, chapters: int, last: float | None, score: int = 0)
 
 
 @app.get("/api/novels")
-def api_novels(session: SessionDep, url: str = ""):
-    """Novels for the extension's picker; with `url`, best match for that page first."""
+def api_novels(session: SessionDep, url: str = "", title: str = ""):
+    """Novels for the extension's picker; with `url`, best match for that page first.
+    `identified` is the novel the page surely belongs to (see identify_novel), if any."""
     stats = {nid: (n, last) for nid, n, last in session.exec(
         select(Chapter.novel_id, func.count(Chapter.id),
                func.max(func.coalesce(Chapter.number_end, Chapter.number)))
@@ -713,15 +715,17 @@ def api_novels(session: SessionDep, url: str = ""):
                                    .where(col(Chapter.url).contains(host))).all():
             urls.setdefault(nid, []).append(u)
     nu_match = novel_by_nu_url(session, url) if is_series_url(url) else None
-    out = []
+    out, scored = [], []
     for novel in session.exec(select(Novel)).all():
         n, last = stats.get(novel.id, (0, None))
         score = match_score(url, urls.get(novel.id, [])) if url else 0
         if nu_match is novel:
             score = 1000
         out.append(_novel_json(novel, n, last, score))
+        scored.append((novel, score))
     out.sort(key=lambda d: (-d["match"], d["title"].casefold()))
-    return {"novels": out}
+    found = identify_novel(url, title, scored) if url and not is_series_url(url) else None
+    return {"novels": out, "identified": found.id if found else None}
 
 
 @app.post("/api/novels")

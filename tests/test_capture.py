@@ -109,7 +109,8 @@ def test_extension_zip(client):  # noqa: F811
     import zipfile
 
     z = zipfile.ZipFile(io.BytesIO(client.get("/extension.zip").content))
-    assert {"manifest.json", "popup.html", "popup.js", "capture.js"} <= set(z.namelist())
+    assert {"manifest.json", "popup.html", "popup.js", "capture.js", "background.js"} <= set(
+        z.namelist())
     assert json.loads(z.read("manifest.json"))["manifest_version"] == 3
 
 
@@ -218,3 +219,33 @@ def test_parts_of_one_chapter_are_kept_apart(client):  # noqa: F811
     import re
     titles = re.findall(r"<a href=\"/chapter/\d+\">([^<]*)</a>", html)
     assert "Chapter 2.1: Half" in titles and any(t.startswith("Chapter 2") and "2.1" not in t for t in titles), titles
+
+
+def test_identify_novel_for_the_shortcut(client):  # noqa: F811
+    from types import SimpleNamespace
+
+    from shelf.capture import identify_novel
+
+    a = SimpleNamespace(title="Night Train", alt_names=["NT", "The Long Night Train"])
+    b = SimpleNamespace(title="Morning Bus", alt_names=[])
+    url = "https://ex.com/novel/night-train/chapter-9"
+    # Same folder as the novel's chapters.
+    assert identify_novel(url, "Chapter 9", [(a, 3), (b, 2)]) is a
+    # Only the same site: not enough, unless the name is in the title or URL.
+    assert identify_novel("https://ex.com/p/123", "Chapter 9", [(a, 1), (b, 1)]) is None
+    assert identify_novel("https://ex.com/p/123", "Morning Bus – Ch 9", [(a, 1), (b, 1)]) is b
+    assert identify_novel("https://new.example/the-long-night-train-9", "", [(a, 0), (b, 0)]) is a
+    # Short alternative names are too vague.
+    assert identify_novel("https://new.example/nt-9", "NT 9", [(a, 0), (b, 0)]) is None
+    # Two equally good candidates: no answer.
+    c = SimpleNamespace(title="Night Train", alt_names=[])
+    assert identify_novel("https://x.example/night-train-9", "", [(a, 0), (c, 0)]) is None
+
+    nid = client.post("/api/novels", json={"title": "Night Train"}).json()["novel"]["id"]
+    client.post(f"/api/novels/{nid}/chapters",
+                json={"url": "https://example.com/night-train/chapter-1", "html": page(1)})
+    r = client.get("/api/novels", params={"url": "https://example.com/night-train/chapter-2",
+                                          "title": "Chapter 2"}).json()
+    assert r["identified"] == nid
+    r = client.get("/api/novels", params={"url": "https://other.example/x/2"}).json()
+    assert r["identified"] is None

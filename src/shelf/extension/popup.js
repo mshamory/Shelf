@@ -8,6 +8,7 @@ let server = DEFAULT_SERVER;
 let page = null; // what capture.js returned
 let tabId = null;
 let previewSeq = 0;
+let identified = null; // the novel Shelf is sure this page belongs to
 
 function setStatus(text, { error = false, link = null } = {}) {
   const el = $("status");
@@ -196,11 +197,52 @@ async function preview() {
   }
 }
 
-async function showChapter(novels) {
+async function sendChapter(id) {
+  setStatus("Sending…");
+  const res = await call(`/api/novels/${id}/chapters`, chapterBody(false));
+  await api.storage.local.set({ lastNovel: id });
+  const verb = { added: "Added", replaced: "Replaced", updated: "Updated" }[res.action];
+  const num = res.chapter.number != null ? ` (#${formatNumber(res.chapter.number)})` : "";
+  setStatus(`${verb} “${res.chapter.title}”${num} in ${res.novel.title}.`,
+    { link: { href: server + res.chapter.url, text: "Read" } });
+  return res;
+}
+
+// Opened with the "send automatically" shortcut: send without asking when the novel and
+// the chapter number are both clear. Returns false to fall back to the menu, with a note.
+async function quickSend() {
+  if (identified == null) {
+    $("preview").textContent = "Shelf couldn't tell which novel this page belongs to.";
+    return false;
+  }
+  let dry;
+  try {
+    dry = await call(`/api/novels/${identified}/chapters`, chapterBody(true));
+  } catch (e) {
+    return false; // the preview shows why
+  }
+  if (dry.chapter.number == null) {
+    $("preview").textContent = "Shelf couldn't find the chapter number on this page.";
+    return false;
+  }
+  $("chapter").hidden = true;
+  try {
+    await sendChapter(identified);
+  } catch (e) {
+    setStatus(e.message, { error: true });
+    $("chapter").hidden = false;
+    return true;
+  }
+  setTimeout(() => window.close(), 2500);
+  return true;
+}
+
+async function showChapter(novels, quick) {
   $("chapter").hidden = false;
   fillNovels($("novel"), novels, { allowNew: true });
   const remembered = (await api.storage.local.get({ lastNovel: null })).lastNovel;
-  const best = novels[0]?.match > 0 ? novels[0] : novels.find((n) => String(n.id) === String(remembered));
+  const best = novels.find((n) => n.id === identified) ||
+    (novels[0]?.match > 0 ? novels[0] : novels.find((n) => String(n.id) === String(remembered)));
   $("novel").value = best ? best.id : (novels.length ? novels[0].id : NEW);
   $("new-title-label").hidden = $("novel").value !== NEW;
   $("selection-label").hidden = !page.hasSelection;
@@ -230,18 +272,29 @@ async function showChapter(novels) {
         if (!title) throw new Error("Give the new novel a title.");
         id = (await call("/api/novels", { title })).novel.id;
       }
-      setStatus("Sending…");
-      const res = await call(`/api/novels/${id}/chapters`, chapterBody(false));
-      await api.storage.local.set({ lastNovel: id });
-      const verb = { added: "Added", replaced: "Replaced", updated: "Updated" }[res.action];
-      setStatus(`${verb} “${res.chapter.title}” in ${res.novel.title}.`,
-        { link: { href: server + res.chapter.url, text: "Read" } });
+      await sendChapter(id);
     } catch (err) {
       setStatus(err.message, { error: true });
       $("send").disabled = false;
     }
   });
+  if (quick && await quickSend()) return;
+  const note = quick ? $("preview").textContent : "";
   await preview();
+  if (note && !$("preview").querySelector(".warn")) {
+    const n = document.createElement("div");
+    n.className = "muted";
+    n.textContent = note + " Pick it below.";
+    $("preview").prepend(n);
+  }
+}
+
+async function openedQuick() {
+  try {
+    return (await api.runtime.sendMessage({ type: "take-quick" }))?.quick === true;
+  } catch {
+    return false;
+  }
 }
 
 // -- settings -----------------------------------------------------------------
@@ -277,16 +330,20 @@ async function main() {
       { error: true });
     return;
   }
+  const quick = await openedQuick();
   let novels;
   try {
-    novels = (await call(`/api/novels?url=${encodeURIComponent(page.url)}`)).novels;
+    const q = `url=${encodeURIComponent(page.url)}&title=${encodeURIComponent(page.title || "")}`;
+    const res = await call(`/api/novels?${q}`);
+    novels = res.novels;
+    identified = res.identified ?? null;
   } catch (e) {
     setStatus(e.message, { error: true });
     showSettings(true);
     return;
   }
   if (page.isSeries) await showSeries(novels);
-  else await showChapter(novels);
+  else await showChapter(novels, quick);
 }
 
 main();

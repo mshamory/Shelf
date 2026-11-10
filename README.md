@@ -61,6 +61,12 @@ build a novel without any archive.
   path is preselected. You can also start a new novel. Before you send, it shows the detected
   title and number and whether the page adds a chapter or replaces one. Correct the title or
   number if needed. With text selected, you can send just the selection.
+- **Alt+Shift+D** sends a chapter page without asking, when Shelf is sure of both the novel
+  and the chapter number. It shows the result and closes. The novel counts as sure when
+  the page sits in the same folder as chapters already in Shelf, or when the novel's title or
+  one of its alternative names is in the page title or URL, and no other novel fits as well.
+  Otherwise the menu opens with a note on what was unclear. To change either shortcut, use
+  `about:addons` → ⚙ → *Manage Extension Shortcuts* in Firefox, or `chrome://extensions/shortcuts`.
 
 Chapters sent this way are kept when the novel's archive is re-imported, and they take the
 place of archived chapters with the same URL or number. If the archive is removed, the novel
