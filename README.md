@@ -16,8 +16,9 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   ProseMirror/TipTap or Editor.js format. Hidden anti-scraping text and invisible zero-width watermarks are removed.
 - **Chapters opened from another chapter (Next.js App Router)**: clicking "next chapter" on
   these sites fetches `…/chapter-2?_rsc=…` (a React Server Components payload) instead of
-  a page. Shelf rebuilds the page from that payload and extracts it like an archived page.
-  Link prefetches carry no chapter text and are ignored.
+  a page. Shelf rebuilds the page from that payload and extracts it like an archived page,
+  or, when the site hands the chapter to its reader script as data (title, number, text),
+  reads that chapter object. Link prefetches carry no chapter text and are ignored.
 - **Chapters from the rendered page**: when a chapter's network response isn't readable (e.g.
   the site sends it encrypted and its script fills in the page), Shelf uses the text the
   browser displayed, which ArchiveWeb.page and Browsertrix save with each page. Site menus,

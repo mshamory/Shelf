@@ -27,6 +27,8 @@ from .extract import (
     sanitize,
     text_length,
 )
+from .rsc import RSC_MIME, payload_rows
+from .rsc import page_url as rsc_page_url
 from .wacz import WaczFile
 
 log = logging.getLogger("shelf.xhr")
@@ -36,7 +38,8 @@ CONTENT_KEYS = ("content", "content_html", "contentHtml", "html", "body", "body_
                 "bodyHtml", "chapter_content", "chapterContent", "content_json_string",
                 "content_json", "contentJson", "text")
 TITLE_KEYS = ("title", "chapter_title", "chapterTitle", "name", "chapter_name", "chapterName")
-NUMBER_KEYS = ("number", "chapter_number", "chapterNumber", "chapter_no", "chapterNo", "num")
+NUMBER_KEYS = ("number", "chapter_number", "chapterNumber", "chapter_no", "chapterNo",
+               "chapter_num", "chapterNum", "num")
 URL_KEYS = ("url", "link", "permalink", "canonical_url")
 MIN_RECORD_BYTES = 0  # CDX lengths are compressed sizes; filtering on them is unreliable
 MAX_RECORD_BYTES = 20 * 1024 * 1024
@@ -330,6 +333,7 @@ def unavailable_reason(obj: dict) -> str:
         return "encrypted"
     locked = obj.get("locked", obj.get("is_locked"))
     if fmt == "locked" or locked is True or obj.get("current_user_can_view") is False or (
+            obj.get("is_premium") is True) or (
             isinstance(locked, dict) and (locked.get("price") or 0) > 0
             and not locked.get("unlocked_at")):
         return "locked"
@@ -353,14 +357,18 @@ def scan_xhr(w: WaczFile) -> XhrScan:
         # chapter. Keep the capture with the most chapter text.
         objects, entry, page_url, best_len = [], None, url, 0
         for cap in w.captures(url):
-            if ("json" not in cap.mime or not 200 <= cap.status < 300
+            rsc = cap.mime == RSC_MIME
+            if (("json" not in cap.mime and not rsc) or not 200 <= cap.status < 300
                     or not MIN_RECORD_BYTES <= cap.length <= MAX_RECORD_BYTES):
                 continue
             resp = w.read(cap)
             if resp is None:
                 continue
             scanned += 1
-            data, page = decode_payload(url, resp.body)
+            if rsc:  # Next.js RSC payload: chapter objects passed to client components
+                data, page = payload_rows(resp.body), rsc_page_url(url) or url
+            else:
+                data, page = decode_payload(url, resp.body)
             found_here = []
             for obj, content in _walk(data) if data is not None else ():
                 if content is not None:
@@ -387,12 +395,17 @@ def scan_xhr(w: WaczFile) -> XhrScan:
             title = _first(obj, TITLE_KEYS)
             title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip() if isinstance(
                 title, str) else ""
+            number = _as_number(_first(obj, NUMBER_KEYS))
+            if entry.mime == RSC_MIME and number is not None and chapter_number(title) is None:
+                # The page shows "Chapter 2" above the bare title "Tree Hole Shelter".
+                n = int(number) if number == int(number) else number
+                title = f"Chapter {n}: {title}" if title else f"Chapter {n}"
             chapter = XhrChapter(
                 url=chapter_url,
                 title=title,
                 html=content,
                 text_length=text_length(content),
-                number=_as_number(_first(obj, NUMBER_KEYS)),
+                number=number,
                 ts=entry.timestamp,
             )
             prev = found.get(chapter_url)

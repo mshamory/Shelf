@@ -81,3 +81,35 @@ def test_parse_wacz_reads_rsc_navigations(tmp_path):
     assert got[2].url == base + "2" and got[2].title == "Chapter 2: Pass 2"
     assert "carriage" in got[3].html and "Home | Novels" not in got[3].html
     assert PARA[3:40] in got[1].html  # chapter 1 from its HTML page, not the payload
+
+
+def test_chapter_passed_to_client_component_as_data(tmp_path):
+    """The chapter is a prop of a client component, its text in a T row; the page's meta
+    description (name + content) is not a second chapter."""
+    base = "https://haven.example/series/mountain-pass/chapter-"
+
+    def payload(n: int, premium: bool = False) -> bytes:
+        text = "\n\n".join(SENTENCE * 5 + f"({n}.{i})" for i in range(6)).encode()
+        chapter = {"id": f"id-{n}", "chapter_num": n, "title": f"Pass {n}",
+                   "is_premium": premium, "content": "$13" if not premium else "Teaser."}
+        rows = [
+            '1:I[1,["/_next/static/chunks/a.js"],"ChapterReader"]',
+            "5:" + json.dumps([["$", "$L1", None, {"chapter": chapter}]]),
+            "d:" + json.dumps([["$", "title", "0", {"children": f"Chapter {n} | Mountain Pass"}],
+                               ["$", "meta", "1", {"name": "description",
+                                                   "content": "Read on. " + SENTENCE * 8}]]),
+            '0:{"f":[["children",["$","div",null,{"children":"$5"}]]]}',
+        ]
+        body = "\n".join(rows).encode() + b"\n"
+        if not premium:
+            body += b"13:T" + f"{len(text):x},".encode() + text
+        return body
+
+    records = [{"url": f"{base}{n}?_rsc=a{n}", "status": 200, "body": payload(n, n == 3),
+                "ctype": "text/x-component"} for n in (1, 2, 3)]
+    parsed = parse_wacz(write_wacz(tmp_path / "haven.wacz", records, None))
+    got = {c.number: c for c in parsed.chapters}
+    assert sorted(got) == [1, 2]
+    assert got[2].url == base + "2" and got[2].title == "Chapter 2: Pass 2"
+    assert got[2].html.count("<p>") == 6 and "Read on" not in got[2].html
+    assert parsed.unreadable == {3: "locked"}

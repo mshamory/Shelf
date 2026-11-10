@@ -12,6 +12,10 @@ is the page's React tree in the "Flight" format, one row per line:
 Here the tree is rendered back to plain HTML, so it can be extracted like any archived page.
 Link prefetches hold only the layout, without the chapter text; those simply come out too
 short to count as a chapter.
+
+Some sites instead hand the chapter to a client component as data
+(``{"chapter_num": 2, "title": …, "content": "$13"}`` with the text in row 13). For those,
+``payload_rows`` gives the rows as plain JSON for xhr.py's chapter-object search.
 """
 
 import html
@@ -181,3 +185,29 @@ def render_page(body: bytes) -> str | None:
                     break
     return (f"<html><head><title>{html.escape(title)}</title></head>"
             f"<body>{content}</body></html>")
+
+
+def payload_rows(body: bytes) -> list:
+    """The payload's rows as JSON values, with references to string rows (e.g. a chapter's
+    text in a ``T`` row) filled in. Other references are left as they are."""
+    rows = parse_rows(body)
+
+    def fill(v, depth: int = 0):
+        if depth > MAX_DEPTH:
+            return v
+        if isinstance(v, str) and not isinstance(v, _Text):
+            m = REF_RE.match(v)
+            if m and not m.group(2):
+                target = rows.get(m.group(1).lower())
+                if isinstance(target, str):
+                    return str(target)
+            return v
+        if isinstance(v, list):
+            if len(v) == 4 and v[0] == "$" and v[1] in SKIP_TAGS:
+                return None  # <meta name="description" content="…"> is no chapter
+            return [fill(x, depth + 1) for x in v]
+        if isinstance(v, dict):
+            return {k: fill(x, depth + 1) for k, x in v.items()}
+        return v
+
+    return [fill(v) for v in rows.values() if isinstance(v, list | dict)]
