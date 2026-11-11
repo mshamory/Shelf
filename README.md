@@ -40,7 +40,9 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   never preferred; otherwise the site with the most chapters wins. Site names, series names
   and aggregator "Read … Online" text in chapter titles are removed; when every page is titled
   with just the site name, the chapter's own heading is used. Chapters titled with a
-  repeated word and a number ("Patron 12", "Volume 3") are numbered by it.
+  repeated word and a number ("Patron 12", "Volume 3"), or with just a number once the series
+  and site names are removed ("Series — 17 | Site", when the URL ends in 17 too), are
+  numbered by it.
 - **NovelUpdates metadata**: title, cover, description, authors, genres, tags, rating, status,
   associated names, and so on.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment

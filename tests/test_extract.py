@@ -233,6 +233,24 @@ def test_numbers_from_title_pattern():
     assert few[0].number is None
 
 
+def test_numbers_from_bare_number_titles():
+    """"Series — 17 | Site": once the shared series and site are removed, only the number is
+    left. It counts when the URL ends in that number too."""
+    from shelf.library import _numbers_from_title_pattern
+
+    base = "https://tl.example/2016/12/"
+    chapters = [_ec(f"My Series — {n} | TL Site", url=f"{base}{n:02}/my-series-{n}/")
+                for n in (13, 14, 15)]
+    _numbers_from_title_pattern(chapters)
+    assert [(c.number, c.title) for c in chapters] == [
+        (13, "Chapter 13"), (14, "Chapter 14"), (15, "Chapter 15")]
+    # Not when the URL doesn't carry the number (a year, a count…).
+    others = [_ec(f"My Series — {n} | TL Site", url=f"{base}post-{i}/")
+              for i, n in enumerate((2016, 2017, 2018))]
+    _numbers_from_title_pattern(others)
+    assert [c.number for c in others] == [None, None, None]
+
+
 def test_duplicate_captures_of_a_number_are_marked():
     from shelf.library import mark_duplicates
 

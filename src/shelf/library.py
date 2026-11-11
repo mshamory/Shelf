@@ -56,7 +56,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "12"
+EXTRACTOR_VERSION = "13"
 
 
 @dataclass
@@ -216,12 +216,13 @@ def promote_generic_titles(chapters: list[ExtractedChapter], series: str) -> Non
             c.title, c.html = title, _drop_leading_repeats(content, title, series)
 
 
-TITLE_NUMBER_RE = re.compile(r"^(.*?\D)\s*#?(\d+(?:\.\d+)?)\s*$")
+TITLE_NUMBER_RE = re.compile(r"^(.*?\D)?\s*#?(\d+(?:\.\d+)?)\s*$")
 
 
 def _numbers_from_title_pattern(chapters: list[ExtractedChapter]) -> None:
     """Number chapters titled "<same words> <n>" ("Patron 12", "Series Volume 3") when most
-    unnumbered chapters follow that pattern."""
+    unnumbered chapters follow that pattern. A title that is just a number once the site
+    and series are removed ("Series — 17 | Site") counts too, if its URL has that number."""
     # Compare titles without their site suffix ("Patron 3 – Site"), cleaned per site.
     clean: dict[int, str] = {}
     for group in _groups_by_site(chapters):
@@ -229,15 +230,25 @@ def _numbers_from_title_pattern(chapters: list[ExtractedChapter]) -> None:
             clean[id(c)] = t
     loose = [c for c in chapters if c.number is None and c.season is None]
     found = [(c, TITLE_NUMBER_RE.match(clean[id(c)].strip())) for c in loose]
-    prefixes = Counter(m.group(1).strip().casefold() for _c, m in found if m)
+    found = [(c, m) for c, m in found
+             if m and (m.group(1) or _number_in_url(c.url, m.group(2)))]
+    prefixes = Counter((m.group(1) or "").strip().casefold() for _c, m in found)
     if not prefixes:
         return
     prefix, count = prefixes.most_common(1)[0]
     if count < max(3, len(loose) * 0.8):
         return
     for c, m in found:
-        if m and m.group(1).strip().casefold() == prefix:
+        if (m.group(1) or "").strip().casefold() == prefix:
             c.number = float(m.group(2))
+            if not prefix:
+                c.title = f"Chapter {m.group(2)}"
+
+
+def _number_in_url(url: str, number: str) -> bool:
+    """The URL's last path segment ends in this number ("…/tensei-slowlife-17/")."""
+    last = urlsplit(url).path.rstrip("/").rpartition("/")[2]
+    return re.search(rf"(?:^|\D){re.escape(number)}$", last) is not None
 
 
 def _groups_by_site(chapters: list[ExtractedChapter]) -> list[list[ExtractedChapter]]:
