@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from sqlmodel import Session, select
 
-from .db import BROWSER_PREFIX, Chapter, Novel, utcnow
+from .db import BROWSER_PREFIX, Chapter, Novel, save_version, utcnow
 from .extract import (
     MIN_CHAPTER_CHARS,
     SIDE_SEASON,
@@ -57,6 +57,8 @@ class CaptureResult:
     chapter: Chapter
     action: str  # "added" | "replaced" (an archive chapter) | "updated" (an earlier capture)
     replaced_title: str = ""
+    # The chapter replaced came from another page (matched by number, not URL).
+    other_page: bool = False
 
 
 def _site_words(url: str, html: str) -> set[str]:
@@ -192,13 +194,16 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
     else:
         ch = target
     replaced_title = target.title if target is not None else ""
+    other_page = target is not None and _url_key(target.url) != _url_key(ec.url)
     if dry_run:
         preview = Chapter(novel_id=novel.id, position=0, number=ec.number,
                           number_end=ec.number_end, season=season,
                           season_label=label, title=final_title, url=ec.url,
                           content_html=ec.html, char_count=ec.text_length, origin="browser")
-        return CaptureResult(preview, action, replaced_title)
+        return CaptureResult(preview, action, replaced_title, other_page)
 
+    if target is not None and (other_page or target.content_html != ec.html):
+        save_version(session, target, f"Replaced by a capture of {ec.url}")
     ch.url = ec.url
     ch.content_html, ch.char_count = ec.html, ec.text_length
     ch.captured_at = utcnow().strftime("%Y%m%d%H%M%S")
@@ -224,7 +229,7 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
     novel.import_error = None
     session.commit()
     session.refresh(ch)
-    return CaptureResult(ch, action, replaced_title)
+    return CaptureResult(ch, action, replaced_title, other_page)
 
 
 def create_novel(session: Session, title: str) -> Novel:
@@ -272,8 +277,23 @@ def match_score(page_url: str, chapter_urls: list[str]) -> int:
             if a != b:
                 break
             shared += 1
+        if _dated(page_parts) and _dated(parts):
+            # Blogs file every post under its date (/2026/09/07/…): the date says nothing
+            # about the series, the post name ("safe-city-ch-134") does.
+            same = _slug_stem(page_parts) and _slug_stem(page_parts) == _slug_stem(parts)
+            shared = len(page_parts) if same else 1
         best = max(best, shared)
     return best
+
+
+def _dated(parts: list[str]) -> bool:
+    """A path like /2026/09/07/post-name: folders that are all numbers."""
+    return len(parts) >= 2 and all(p.isdigit() for p in parts[:-1])
+
+
+def _slug_stem(parts: list[str]) -> str:
+    """A post name without its numbers: "safe-city-ch-134" -> "safe-city-ch"."""
+    return re.sub(r"[\W_]*\d+[\W_]*", "-", parts[-1].casefold()).strip("-") if parts else ""
 
 
 def _words(text: str) -> str:

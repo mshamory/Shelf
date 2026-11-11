@@ -17,7 +17,15 @@ from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from sqlmodel import Session, select
 
 from .config import settings
-from .db import BROWSER_PREFIX, Chapter, Novel, get_engine, has_archive, utcnow
+from .db import (
+    BROWSER_PREFIX,
+    Chapter,
+    ChapterVersion,
+    Novel,
+    get_engine,
+    has_archive,
+    utcnow,
+)
 from .extract import (
     MIN_CHAPTER_CHARS,
     SIDE_SEASON,
@@ -655,6 +663,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     kept_urls = {_url_key(c.url) for c in kept}
     kept_numbers = {(c.season or 0, n) for c in kept for n in covered(c.number, c.number_end)
                     if c.number == int(c.number)}  # whole chapters, for unreadable numbers
+    dropped = {c.id: _url_key(c.url) for c in novel.chapters if c.origin != "browser"}
     for c in list(novel.chapters):
         if c.origin != "browser":
             session.delete(c)
@@ -707,6 +716,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     if kept or any(c.custom_number or c.custom_season for c in new_chapters):
         resequence(new_chapters)
     session.flush()
+    move_versions(session, dropped, {_url_key(c.url): c.id for c in new_chapters})
     novel.last_chapter_id = next((c.id for c in new_chapters if c.url == last_url), None)
     if novel.last_chapter_id is None:
         novel.last_position = 0.0
@@ -720,6 +730,21 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     log.info("Imported %s: %d chapters (%d pages skipped)", rel, len(new_chapters),
              len(parsed.skipped))
     return novel
+
+
+def move_versions(session: Session, dropped: dict[int, str], by_url: dict[str, int]) -> None:
+    """Earlier versions of deleted chapters go to the chapter now at their URL, or are
+    kept without a chapter."""
+    if not dropped:
+        return
+    for v in session.exec(select(ChapterVersion).where(
+            ChapterVersion.chapter_id.in_(list(dropped)))).all():
+        v.chapter_id = by_url.get(dropped[v.chapter_id])
+
+
+def delete_versions(session: Session, novel_id: int) -> None:
+    for v in session.exec(select(ChapterVersion).where(ChapterVersion.novel_id == novel_id)):
+        session.delete(v)
 
 
 def captures_dir(novel_id: int) -> Path:
@@ -807,9 +832,11 @@ def scan_library(force: bool = False) -> None:
                 if any(c.origin == "browser" for c in novel.chapters):
                     # Keep what was sent from the browser; drop only the archive's chapters.
                     log.info("Archive %s is gone; keeping browser chapters", novel.wacz_path)
+                    dropped = {c.id: "" for c in novel.chapters if c.origin != "browser"}
                     for c in list(novel.chapters):
                         if c.origin != "browser":
                             session.delete(c)
+                    move_versions(session, dropped, {})
                     novel.wacz_path = f"{BROWSER_PREFIX}{novel.id}"
                     novel.unreadable_chapters = {}
                     continue
@@ -817,6 +844,7 @@ def scan_library(force: bool = False) -> None:
                 if novel.cover_file:
                     (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
                 delete_captures(novel.id)
+                delete_versions(session, novel.id)
                 session.delete(novel)
             session.commit()
         version_file.write_text(EXTRACTOR_VERSION)

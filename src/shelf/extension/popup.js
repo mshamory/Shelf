@@ -183,6 +183,13 @@ async function preview() {
     }[res.action]);
     info.textContent = parts.join(" · ");
     box.append(head, info);
+    if (res.other_page) {
+      const warn = document.createElement("div");
+      warn.className = "warn";
+      warn.textContent = `“${res.replaced_title}” came from a different page. Check that this ` +
+        "is the right novel. The old version stays in the chapter's history.";
+      box.append(warn);
+    }
     $("title").placeholder = ch.title;
     $("number").placeholder = formatNumber(ch.number) || "—";
     $("send").disabled = false;
@@ -223,6 +230,11 @@ async function quickSend() {
   }
   if (dry.chapter.number == null) {
     $("preview").textContent = "Shelf couldn't find the chapter number on this page.";
+    return false;
+  }
+  if (dry.other_page) {
+    // Replacing a chapter captured from a different page: maybe the wrong novel. Ask (the
+    // preview shown next explains why).
     return false;
   }
   $("chapter").hidden = true;

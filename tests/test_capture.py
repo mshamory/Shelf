@@ -251,6 +251,21 @@ def test_identify_novel_for_the_shortcut(client):  # noqa: F811
     assert r["identified"] is None
 
 
+def test_dated_blog_posts_match_by_post_name():
+    """Posts filed by date: two series posted on the same day share a folder, but only the
+    post name tells which series a page belongs to."""
+    from shelf.capture import match_score
+
+    safe_city = ["https://blog.example/2026/09/07/safe-city-ch-133/",
+                 "https://blog.example/2026/09/08/safe-city-ch-134-1/"]
+    page_parts = 4  # 2026 / 09 / 07 / post
+    assert match_score("https://blog.example/2026/09/07/rules-ch-134/", safe_city) == 1
+    assert match_score("https://blog.example/2026/10/02/safe-city-ch-150/",
+                       safe_city) == page_parts
+    # Ordinary folders work as before.
+    assert match_score("https://ex.com/novel/a/chapter-3", ["https://ex.com/novel/a/c-2"]) == 3
+
+
 def test_page_without_title_uses_its_heading_and_article(client):  # noqa: F811
     """A Next.js reader with no <title>: a "Chapter 9 · Volume 1" label, the chapter's name
     in <h1>, promo boxes around the one <article> that holds the text."""
@@ -271,3 +286,66 @@ def test_page_without_title_uses_its_heading_and_article(client):  # noqa: F811
     assert "dusk" in reader
     assert "Enjoying the story" not in reader and "Discover more" not in reader
     assert "Volume 1" not in reader
+
+
+def test_replaced_chapters_keep_their_history(client):  # noqa: F811
+    """A capture sent to the wrong novel replaces a chapter; the original can be restored,
+    also after re-imports, and the restore can be undone."""
+    import re
+
+    from sqlmodel import Session, select
+
+    from shelf import db
+    from shelf.config import settings
+    from shelf.db import Chapter, ChapterVersion
+    from shelf.library import scan_library
+
+    build_wacz(settings.library_dir / "night-train.wacz")  # chapters 1, 2, 3, 10
+    scan_library()
+    nid = client.get("/api/novels").json()["novels"][0]["id"]
+
+    def chapter2() -> Chapter:
+        with Session(db.get_engine()) as s:
+            return s.exec(select(Chapter).where(Chapter.novel_id == nid,
+                                                Chapter.number == 2)).one()
+
+    original = chapter2()
+    wrong = {"url": "https://other.example/another-novel/2",
+             "html": page(2, "<p>Wrong novel text.</p>", title="Chapter 2: Elsewhere")}
+    dry = client.post(f"/api/novels/{nid}/chapters", json={**wrong, "dry_run": True}).json()
+    assert dry["action"] == "replaced" and dry["other_page"]
+    client.post(f"/api/novels/{nid}/chapters", json=wrong)
+    # Sending the same page again changes nothing, so it adds no version.
+    again = client.post(f"/api/novels/{nid}/chapters", json=wrong).json()
+    assert again["action"] == "updated" and not again["other_page"]
+    with Session(db.get_engine()) as s:
+        assert len(s.exec(select(ChapterVersion)).all()) == 1
+
+    client.post(f"/novel/{nid}/reimport")  # the capture stays, and so does its history
+    ch = chapter2()
+    assert ch.id == original.id and ch.origin == "browser"
+    assert "1 earlier version" in client.get(f"/chapter/{ch.id}").text
+    history = client.get(f"/chapter/{ch.id}/history").text
+    assert original.url in history and "Replaced by a capture of https://other.example" in history
+    vid = int(re.search(r"/history/(\d+)/restore", history).group(1))
+    shown = client.get(f"/chapter/{ch.id}/history", params={"show": vid}).text
+    assert original.content_html[:60] in shown
+
+    r = client.post(f"/chapter/{ch.id}/history/{vid}/restore")
+    assert r.status_code == 200 and "Restored the version from" in r.text
+    ch = chapter2()
+    assert (ch.url, ch.origin, ch.title) == (original.url, "archive", original.title)
+    assert ch.content_html == original.content_html
+
+    # A re-import recreates archive chapters; the history moves to the new one by URL.
+    client.post(f"/novel/{nid}/reimport")
+    ch = chapter2()
+    assert ch.origin == "archive" and "Wrong novel" not in ch.content_html
+    history = client.get(f"/chapter/{ch.id}/history").text
+    assert "Replaced by restoring the version from" in history and wrong["url"] in history
+    # Undo the restore: the capture comes back.
+    vid = int(re.search(r"/history/(\d+)/restore", history).group(1))
+    client.post(f"/chapter/{ch.id}/history/{vid}/restore")
+    ch = chapter2()
+    assert ch.origin == "browser" and "Wrong novel" in ch.content_html
+    assert client.post(f"/chapter/{ch.id}/history/999/restore").status_code == 404

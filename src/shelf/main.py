@@ -30,12 +30,24 @@ from .capture import (
     novel_by_nu_url,
 )
 from .config import settings
-from .db import Chapter, Novel, TrimRule, get_session, has_archive, init_db, utcnow
+from .db import (
+    Chapter,
+    ChapterVersion,
+    Novel,
+    TrimRule,
+    get_session,
+    has_archive,
+    init_db,
+    restore_version,
+    save_version,
+    utcnow,
+)
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
 from .library import (
     apply_metadata,
     delete_captures,
+    delete_versions,
     import_wacz,
     resequence,
     scan_status,
@@ -219,8 +231,18 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
          "missing_reasons": reason_counts(gaps),
          "gaps_before": gaps_before(chapters, gaps),
          "first_number": int(min(numbered)) if numbered else None,
-         "seasons": novel_seasons(session, novel_id) if hidden else []},
+         "seasons": novel_seasons(session, novel_id) if hidden else [],
+         "versions": version_counts(session, novel_id) if hidden else {}},
     )
+
+
+def version_counts(session: Session, novel_id: int) -> dict[int, int]:
+    """Earlier versions per chapter id."""
+    return dict(session.exec(
+        select(ChapterVersion.chapter_id, func.count(ChapterVersion.id))
+        .where(ChapterVersion.novel_id == novel_id,
+               ChapterVersion.chapter_id != None)  # noqa: E711
+        .group_by(ChapterVersion.chapter_id)).all())
 
 
 @app.post("/novel/{novel_id}/metadata/fetch")
@@ -309,6 +331,7 @@ def delete_novel(session: SessionDep, novel_id: int,
     if novel.cover_file:
         (settings.covers_dir / novel.cover_file).unlink(missing_ok=True)
     delete_captures(novel.id)
+    delete_versions(session, novel.id)
     for rule in session.exec(select(TrimRule).where(TrimRule.novel_id == novel_id)).all():
         session.delete(rule)
     session.delete(novel)
@@ -369,6 +392,16 @@ def format_chapter_number(number: float | None, end: float | None = None) -> str
 
 
 templates.env.filters["chapter_number"] = format_chapter_number
+
+
+def format_captured(ts: str) -> str:
+    """'20261111044932' or '2026-11-11T04:49:32Z' -> '2026-11-11'."""
+    if len(ts) >= 8 and ts[:8].isdigit():
+        return f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}"
+    return ts[:10]
+
+
+templates.env.filters["captured"] = format_captured
 
 
 def novel_seasons(session: Session, novel_id: int) -> list[tuple[int, str]]:
@@ -482,8 +515,49 @@ def reader(request: Request, session: SessionDep, chapter_id: int, original: boo
         {"novel": novel, "chapter": ch, "toc": toc, "index": idx, "prev_id": prev_id,
          "next_id": next_id, "resume": resume, "gaps_ahead": gaps_ahead,
          "content": content, "trimmed": trimmed, "original": original,
-         "has_rules": bool(rules)},
+         "has_rules": bool(rules),
+         "versions": version_counts(session, novel.id).get(ch.id, 0)},
     )
+
+
+def _chapter_versions(session: Session, ch: Chapter) -> list[ChapterVersion]:
+    return list(session.exec(
+        select(ChapterVersion).where(ChapterVersion.chapter_id == ch.id,
+                                     ChapterVersion.novel_id == ch.novel_id)
+        .order_by(col(ChapterVersion.saved_at).desc(), col(ChapterVersion.id).desc())).all())
+
+
+@app.get("/chapter/{chapter_id}/history", response_class=HTMLResponse)
+def chapter_history(request: Request, session: SessionDep, chapter_id: int,
+                    show: int | None = None):
+    """The chapter's earlier versions (before captures or restores replaced it)."""
+    ch = session.get(Chapter, chapter_id)
+    if ch is None:
+        raise HTTPException(404, "Chapter not found")
+    versions = _chapter_versions(session, ch)
+    shown = next((v for v in versions if v.id == show), None)
+    return templates.TemplateResponse(
+        request, "history.html",
+        {"novel": get_novel(session, ch.novel_id), "chapter": ch, "versions": versions,
+         "shown": shown})
+
+
+@app.post("/chapter/{chapter_id}/history/{version_id}/restore")
+def restore_chapter_version(session: SessionDep, chapter_id: int, version_id: int):
+    """Put an earlier version back. The current one becomes a version, so this can be
+    undone the same way."""
+    ch = session.get(Chapter, chapter_id)
+    v = session.get(ChapterVersion, version_id)
+    if ch is None or v is None or v.chapter_id != ch.id:
+        raise HTTPException(404, "Version not found")
+    when = v.saved_at.strftime("%Y-%m-%d %H:%M")
+    save_version(session, ch, f"Replaced by restoring the version from {when}")
+    restore_version(ch, v)
+    session.delete(v)
+    session.flush()
+    resequence(list(session.exec(select(Chapter).where(Chapter.novel_id == ch.novel_id)).all()))
+    session.commit()
+    return flash_redirect(f"/chapter/{ch.id}", f"Restored the version from {when}")
 
 
 class Progress(BaseModel):
@@ -773,6 +847,7 @@ async def api_add_chapter(session: SessionDep, novel_id: int, body: ChapterPaylo
     return {
         "action": result.action,
         "replaced_title": result.replaced_title,
+        "other_page": result.other_page,
         "dry_run": body.dry_run,
         "chapter": {"id": ch.id, "title": ch.title, "number": ch.number,
                     "number_end": ch.number_end,

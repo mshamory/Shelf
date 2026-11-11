@@ -46,7 +46,8 @@
   {% endif %}
   <div class="chapter-body">{{ content|safe }}</div>
   <footer class="chapter-foot">
-    <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at[:10] }}{% endif %}</small>
+    <small class="muted">Captured from <a href="{{ chapter.url }}" target="_blank" rel="noopener noreferrer">{{ chapter.url }}</a>{% if chapter.captured_at %} · {{ chapter.captured_at|captured }}{% endif %}
+      {%- if versions %} · <a href="/chapter/{{ chapter.id }}/history">{{ versions }} earlier version{{ 's' if versions != 1 }}</a>{% endif %}</small>
   </footer>
 </div>
 {% if gaps_ahead %}

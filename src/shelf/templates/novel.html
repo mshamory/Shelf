@@ -178,6 +178,7 @@
           {% if edited %}<small class="edited" title="Edited by you">edited</small>{% endif %}
           {% if c.duplicate %}<small class="edited" title="Another capture of this chapter number is shown instead; hidden when imported">duplicate</small>{% endif %}
           {% if c.origin == 'browser' %}<small class="edited" title="Sent from the browser extension; kept when the archive is re-imported">captured</small>{% endif %}
+          {% if versions.get(c.id) %}<a href="/chapter/{{ c.id }}/history" class="edited" title="Earlier versions of this chapter, replaced by captures"><small>{{ versions[c.id] }} earlier version{{ 's' if versions[c.id] != 1 }}</small></a>{% endif %}
           <details class="edit-chapter">
             <summary>Edit</summary>
             <form method="post" action="/chapter/{{ c.id }}/edit" class="edit-chapter-form">

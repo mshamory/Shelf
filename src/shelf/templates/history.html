@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}History · {{ chapter.title }} · {{ novel.title }}{% endblock %}
+{% macro facts(number, number_end, url, origin, captured_at, chars) -%}
+  {%- if number is not none %}#{{ number|chapter_number(number_end) }} · {% endif -%}
+  {{ 'captured from the browser' if origin == 'browser' else 'from the archive' }}
+  {%- if captured_at %} on {{ captured_at|captured }}{% endif %} · {{ (chars / 1000)|round(1) }}k characters
+  <br><a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="history-url">{{ url }}</a>
+{%- endmacro %}
+{% block content %}
+<nav aria-label="breadcrumb"><ul>
+  <li><a href="/novel/{{ novel.id }}">{{ novel.title }}</a></li>
+  <li><a href="/chapter/{{ chapter.id }}">{{ chapter.title }}</a></li>
+  <li>History</li>
+</ul></nav>
+<h2>Chapter history</h2>
+<p class="muted">When a capture replaces a chapter, the chapter as it was is kept here. Restoring a
+  version swaps it with the current one, so a restore can be undone the same way.</p>
+
+<article class="history-item">
+  <header><strong>Current:</strong> {{ chapter.title }}</header>
+  <small class="muted">{{ facts(chapter.number, chapter.number_end, chapter.url, chapter.origin, chapter.captured_at, chapter.char_count) }}</small>
+</article>
+
+{% if not versions %}
+<p>No earlier versions. Versions are kept from now on whenever a capture replaces this chapter.</p>
+{% endif %}
+{% for v in versions %}
+<article class="history-item{% if shown and shown.id == v.id %} is-shown{% endif %}" id="v-{{ v.id }}">
+  <header>
+    <strong>{{ v.get('title') }}</strong>
+    <small class="muted">· {{ v.reason or 'Replaced' }} on {{ v.saved_at.strftime('%Y-%m-%d %H:%M') }} UTC</small>
+  </header>
+  <small class="muted">{{ facts(v.get('number'), v.get('number_end'), v.get('url'), v.get('origin'), v.get('captured_at') or '', v.get('char_count') or 0) }}</small>
+  <footer class="history-actions">
+    {% if shown and shown.id == v.id %}
+    <a href="/chapter/{{ chapter.id }}/history" class="secondary">Hide text</a>
+    {% else %}
+    <a href="/chapter/{{ chapter.id }}/history?show={{ v.id }}#text">Show text</a>
+    {% endif %}
+    <form method="post" action="/chapter/{{ chapter.id }}/history/{{ v.id }}/restore" class="inline">
+      <button class="small">Restore this version</button>
+    </form>
+  </footer>
+</article>
+{% endfor %}
+
+{% if shown %}
+<section class="chapter history-text" id="text">
+  <header>
+    <p class="muted chapter-meta">Earlier version, replaced {{ shown.saved_at.strftime('%Y-%m-%d') }}</p>
+    <h1>{{ shown.get('title') }}</h1>
+  </header>
+  <div class="chapter-body">{{ shown.content_html|safe }}</div>
+</section>
+{% endif %}
+{% endblock %}

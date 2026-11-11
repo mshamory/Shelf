@@ -91,6 +91,50 @@ class Chapter(SQLModel, table=True):
     novel: Novel | None = Relationship(back_populates="chapters")
 
 
+VERSION_FIELDS = (
+    "title", "custom_title", "number", "number_end", "custom_number", "season",
+    "season_label", "custom_season", "url", "captured_at", "char_count", "origin",
+    "capture_file", "auto_title", "auto_number", "auto_number_end", "auto_season",
+    "auto_season_label",
+)
+
+
+class ChapterVersion(SQLModel, table=True):
+    """A chapter as it was before a capture (or a restore) replaced it.
+
+    `chapter_id` is not a foreign key: archive chapters are recreated on every re-import,
+    and their versions are moved to the new row by URL (see library.import_wacz). Versions
+    whose chapter is gone keep `chapter_id` None.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    novel_id: int = Field(foreign_key="novel.id", index=True, ondelete="CASCADE")
+    chapter_id: int | None = Field(default=None, index=True)
+    saved_at: datetime = Field(default_factory=utcnow)  # when it was replaced
+    reason: str = ""  # what replaced it, for the history page
+    fields: dict = Field(default_factory=dict, sa_column=Column(JSON))  # VERSION_FIELDS
+    content_html: str = Field(default="", sa_column=Column(Text))
+
+    def get(self, name: str):
+        return self.fields.get(name)
+
+
+def save_version(session: Session, ch: "Chapter", reason: str) -> ChapterVersion:
+    """Keep the chapter's current state before it's overwritten."""
+    v = ChapterVersion(novel_id=ch.novel_id, chapter_id=ch.id, reason=reason,
+                       fields={f: getattr(ch, f) for f in VERSION_FIELDS},
+                       content_html=ch.content_html)
+    session.add(v)
+    return v
+
+
+def restore_version(ch: "Chapter", v: ChapterVersion) -> None:
+    for f in VERSION_FIELDS:
+        if f in v.fields:
+            setattr(ch, f, v.fields[f])
+    ch.content_html = v.content_html
+
+
 BROWSER_PREFIX = "browser:"
 
 

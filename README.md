@@ -68,11 +68,18 @@ build a novel without any archive.
   and the chapter number. It shows the result and closes. The novel counts as sure when
   the page sits in the same folder as chapters already in Shelf, or when the novel's title or
   one of its alternative names is in the page title or URL, and no other novel fits as well.
-  Otherwise the menu opens with a note on what was unclear. To change either shortcut, use
+  On blogs that file posts by date (`/2026/09/07/series-ch-12/`), the post name has to match
+  too, since the date says nothing about the series. When the page would replace a chapter
+  that was captured from a different page, the shortcut doesn't send; the menu opens with a
+  warning, in case it's the wrong novel. Otherwise the menu opens with a note on what was
+  unclear. To change either shortcut, use
   `about:addons` → ⚙ → *Manage Extension Shortcuts* in Firefox, or `chrome://extensions/shortcuts`.
 
 Chapters sent this way are kept when the novel's archive is re-imported, and they take the
-place of archived chapters with the same URL or number. If the archive is removed, the novel
+place of archived chapters with the same URL or number. The chapter they replace isn't lost:
+it's kept in the chapter's **history** (linked from the reader's footer and from *Edit list*),
+where you can view earlier versions and restore one. A restore keeps the version it replaces,
+so it can be undone the same way. History stays with a chapter across re-imports. If the archive is removed, the novel
 stays with just the sent chapters. The raw pages are kept in `data/captures/`.
 
 To install, download the extension from the link at the bottom of any Shelf page

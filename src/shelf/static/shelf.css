@@ -150,3 +150,12 @@ body { background: var(--pico-background-color); }
 .delete-novel { margin: 1rem 0; padding: .5rem 1rem; border-left: 4px solid var(--pico-del-color, #c0392b);
   background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); }
 .delete-novel summary { color: var(--pico-del-color, #c0392b); }
+
+/* Chapter history */
+.history-item { padding-block: 1rem; margin-block: 1rem; }
+.history-item header { margin-bottom: .5rem; padding-block: .5rem; }
+.history-item.is-shown { outline: 2px solid var(--pico-primary); }
+.history-url { overflow-wrap: anywhere; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding-block: .5rem; }
+.history-actions form { margin: 0; }
+.history-text { border-top: 1px solid var(--pico-muted-border-color); padding-top: 1rem; }
