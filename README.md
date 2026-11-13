@@ -4,7 +4,8 @@ A self-hosted reader for local archives of web novels. Drop
 [WACZ](https://specs.webrecorder.net/wacz/latest/) files — e.g. captured with
 [ArchiveWeb.page](https://archiveweb.page) or Browsertrix — into a folder, and Shelf extracts
 the chapters, orders them, and serves them in a clean, distraction-free reader with
-metadata from [NovelUpdates](https://www.novelupdates.com).
+metadata from [NovelUpdates](https://www.novelupdates.com). EPUB e-books and pages saved from
+the browser can be added too.
 
 ## Features
 
@@ -52,8 +53,8 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   settings, ←/→ keys for chapter navigation, and progress saved per novel (chapter and
   scroll position).
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
-  chapter search, upload of WACZ files and saved web pages from the browser, and hiding of
-  non-chapter pages.
+  chapter search, upload of WACZ files, EPUB e-books and saved web pages from the browser,
+  and hiding of non-chapter pages.
 
 ### Browser extension
 
@@ -151,10 +152,10 @@ Then open <http://localhost:8000>. The library is scanned at startup and wheneve
 
 | Variable               | Default    | Description                                       |
 | ---------------------- | ---------- | ------------------------------------------------- |
-| `SHELF_LIBRARY_DIR`    | `/library` | Folder scanned (recursively) for `.wacz` files    |
+| `SHELF_LIBRARY_DIR`    | `/library` | Folder scanned (recursively) for `.wacz`/`.epub`  |
 | `SHELF_DATA_DIR`       | `/data`    | SQLite database and cover images                  |
 | `SHELF_SCAN_ON_STARTUP`| `true`     | Scan the library when the server starts           |
-| `SHELF_ALLOW_UPLOADS`  | `true`     | Allow uploading WACZ files through the web UI     |
+| `SHELF_ALLOW_UPLOADS`  | `true`     | Allow uploading WACZ/EPUB files in the web UI     |
 | `SHELF_FETCH_COVERS`   | `true`     | Download cover images that aren't in the archive  |
 | `SHELF_PORT`           | `8000`     | Port to listen on                                 |
 
@@ -177,6 +178,22 @@ page in `pages/pages.jsonl` is a candidate chapter:
 
 Re-importing an archive after you add more captures keeps your reading progress and your
 hidden-page choices, matched by chapter URL.
+
+## How an EPUB becomes a novel
+
+Each `.epub` file in the library folder (or uploaded with **Upload**) is one novel, like a
+WACZ archive. Its title, authors, description, subjects, language, publisher, date and cover
+become the novel's metadata, until you add NovelUpdates metadata or edit it.
+
+- Chapters follow the book's table of contents, in the book's reading order. An entry can
+  start a chapter at an anchor inside a file; files the contents don't list continue the
+  chapter before them, unless they start with a heading of their own (books that list a
+  whole volume as one entry). A book without usable contents is split at its chapter
+  headings or at label lines such as "[Chapter 31]".
+- Covers, title pages, copyright pages, the contents page and other short pages are left out.
+- When chapter numbers start again (Book 2, Chapter 1), the contents' groups become sections.
+- Images stay in the book and are shown from it.
+- Books with DRM are refused: Shelf doesn't decrypt protected content.
 
 ## Development
 

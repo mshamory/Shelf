@@ -45,6 +45,7 @@ from .db import (
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
 from .library import (
+    ARCHIVE_SUFFIXES,
     apply_metadata,
     delete_captures,
     delete_versions,
@@ -190,12 +191,13 @@ async def upload(session: SessionDep, files: list[UploadFile],
                  novel: Annotated[str, Form()] = "new", title: Annotated[str, Form()] = ""):
     """WACZ archives (each one a novel) and saved pages (chapters for `novel`, or for a new
     novel), in one upload."""
-    archives = [f for f in files if (f.filename or "").lower().endswith(".wacz")]
+    archives = [f for f in files if (f.filename or "").lower().endswith(ARCHIVE_SUFFIXES)]
     pages = [f for f in files if is_saved_page(f.filename or "")]
     others = [f.filename for f in files if f not in archives and f not in pages]
     if not archives and not pages:
-        return flash_redirect("/", "Upload .wacz archives or saved web pages (.html, .mhtml)",
-                              error=True)
+        return flash_redirect(
+            "/", "Upload .wacz archives, .epub e-books or saved web pages (.html, .mhtml)",
+            error=True)
     if archives and not settings.allow_uploads:
         return flash_redirect("/", "Uploading archives is disabled", error=True)
     target = None
@@ -219,7 +221,7 @@ async def upload(session: SessionDep, files: list[UploadFile],
             touched.append(report.novel.id)
         (messages if report.novel is not None else errors).append(report.summary())
     if others:
-        errors.append("Not a .wacz archive or saved page: " + ", ".join(others))
+        errors.append("Not an archive, e-book or saved page: " + ", ".join(others))
     dest = f"/novel/{touched[0]}" if len(set(touched)) == 1 else "/"
     msg = ". ".join(messages + errors)
     return flash_redirect(dest, msg, error=not messages)
@@ -232,7 +234,7 @@ async def _import_uploaded_archive(session: Session, file: UploadFile) -> Novel:
     dest = dest_dir / name
     i = 1
     while dest.exists():
-        dest = dest_dir / f"{Path(name).stem} ({i}).wacz"
+        dest = dest_dir / f"{Path(name).stem} ({i}){Path(name).suffix.lower()}"
         i += 1
     with dest.open("wb") as out:
         await run_in_threadpool(shutil.copyfileobj, file.file, out, 1024 * 1024)
@@ -375,8 +377,8 @@ def delete_novel(session: SessionDep, novel_id: int,
                               "Only novels without chapters can be deleted", error=True)
     title = novel.title
     if has_archive(novel):
-        path = (settings.library_dir / novel.wacz_path).resolve()
-        if delete_file and path.is_file() and path.is_relative_to(settings.library_dir.resolve()):
+        path = settings.library_dir / novel.wacz_path  # a symlink: only the link goes
+        if delete_file and path.is_file() and ".." not in Path(novel.wacz_path).parts:
             try:
                 path.unlink()
             except OSError as e:
@@ -768,6 +770,34 @@ def snippet(ch: Chapter, q: str, width: int = 90) -> str:
 @app.get("/healthz")
 def healthz():
     return JSONResponse({"ok": True, "version": __version__})
+
+
+@app.get("/epub-image")
+def epub_image(session: SessionDep, book: str, path: str):
+    """An image inside an imported e-book (chapters link here instead of copying it)."""
+    import mimetypes
+    import zipfile
+
+    from fastapi.responses import Response
+
+    novel = session.exec(select(Novel).where(Novel.wacz_path == book)).first()
+    if novel is None or not book.lower().endswith(".epub"):
+        raise HTTPException(404)
+    file = settings.library_dir / book  # `book` is a novel's file, as found by the scan
+    if ".." in Path(book).parts or not file.is_file():
+        raise HTTPException(404)
+    mime = mimetypes.guess_type(path)[0] or ""
+    if not mime.startswith("image/"):
+        raise HTTPException(404)
+    try:
+        with zipfile.ZipFile(file) as z:
+            data = z.read(path)
+    except (KeyError, zipfile.BadZipFile, OSError) as e:
+        raise HTTPException(404) from e
+    # An SVG opened directly must not run scripts on Shelf's origin.
+    return Response(data, media_type=mime, headers={
+        "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
 
 
 @app.get("/covers/{name}")

@@ -2,9 +2,9 @@
 {% block title %}History · {{ chapter.title }} · {{ novel.title }}{% endblock %}
 {% macro facts(number, number_end, url, origin, captured_at, chars) -%}
   {%- if number is not none %}#{{ number|chapter_number(number_end) }} · {% endif -%}
-  {{ 'captured from the browser' if origin == 'browser' else 'from the archive' }}
+  {{ 'captured from the browser' if origin == 'browser' else ('from the e-book' if url.startswith('epub:') else 'from the archive') }}
   {%- if captured_at %} on {{ captured_at|captured }}{% endif %} · {{ (chars / 1000)|round(1) }}k characters
-  <br><a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="history-url">{{ url }}</a>
+  <br>{% if url.startswith('epub:') %}<code class="history-url">{{ url[5:] }}</code> in the e-book{% else %}<a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="history-url">{{ url }}</a>{% endif %}
 {%- endmacro %}
 {% block content %}
 <nav aria-label="breadcrumb"><ul>

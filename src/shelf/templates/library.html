@@ -19,12 +19,13 @@
       <summary role="button">Upload</summary>
       <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form"
             onsubmit="this.querySelector('button').setAttribute('aria-busy','true')">
-        <label>{% if settings.allow_uploads %}Archives (.wacz) or saved{% else %}Saved{% endif %} web pages
+        <label>{% if settings.allow_uploads %}Archives (.wacz), e-books (.epub) or saved{% else %}Saved{% endif %} web pages
           <input type="file" name="files" multiple required
-                 accept="{% if settings.allow_uploads %}.wacz,{% endif %}.html,.htm,.xhtml,.mhtml,.mht,text/html,multipart/related">
+                 accept="{% if settings.allow_uploads %}.wacz,.epub,application/epub+zip,{% endif %}.html,.htm,.xhtml,.mhtml,.mht,text/html,multipart/related">
         </label>
-        <small class="muted">Saved pages (Ctrl+S in the browser) become chapters, one page each. Include a
-          saved NovelUpdates series page for the novel's metadata.</small>
+        <small class="muted">{% if settings.allow_uploads %}Each archive or e-book becomes a novel. {% endif %}Saved pages
+          (Ctrl+S in the browser) become chapters, one page each. Include a saved NovelUpdates series page for
+          the novel's metadata.</small>
         <label>Add saved pages to
           <select name="novel" onchange="this.form.querySelector('.new-title').hidden = this.value !== 'new'">
             <option value="new">A new novel</option>
@@ -71,9 +72,9 @@
 {% else %}
 <article class="empty">
   <h3>Your shelf is empty</h3>
-  <p>Put <code>.wacz</code> archives in the library folder
+  <p>Put <code>.wacz</code> archives or <code>.epub</code> e-books in the library folder
      (<code>{{ settings.library_dir }}</code>) and rescan, or use <em>Upload</em>{% if settings.allow_uploads %} for archives and{% else %} for{% endif %} pages saved from your browser.</p>
-  <p>Each archive becomes one novel. Capture chapters with
+  <p>Each archive or e-book becomes one novel. Capture chapters with
      <a href="https://archiveweb.page" target="_blank" rel="noopener">ArchiveWeb.page</a> or
      <a href="https://webrecorder.net/browsertrix/" target="_blank" rel="noopener">Browsertrix</a>.
      If the archive also includes the novel's NovelUpdates series page, its metadata is picked up automatically.</p>

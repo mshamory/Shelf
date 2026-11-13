@@ -31,7 +31,7 @@
       {% if novel.artists %}<dt>Artists</dt><dd>{{ novel.artists|join(', ') }}</dd>{% endif %}
       {% if has_archive(novel) %}<dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
       {% else %}<dt>Source</dt><dd>Pages sent from the browser</dd>{% endif %}
-      {% if novel.metadata_source %}<dt>Metadata</dt><dd>{{ {'wacz': 'NovelUpdates page in archive', 'upload': 'Uploaded NovelUpdates page', 'fetch': 'Fetched from NovelUpdates', 'manual': 'Edited manually'}[novel.metadata_source] }}</dd>{% endif %}
+      {% if novel.metadata_source %}<dt>Metadata</dt><dd>{{ {'wacz': 'NovelUpdates page in archive', 'epub': 'From the e-book', 'upload': 'Uploaded NovelUpdates page', 'fetch': 'Fetched from NovelUpdates', 'manual': 'Edited manually'}[novel.metadata_source] }}</dd>{% endif %}
     </dl>
 
     {% if novel.genres %}

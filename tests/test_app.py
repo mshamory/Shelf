@@ -71,7 +71,7 @@ def test_upload_and_metadata_upload(client, tmp_path):
     assert "The Sample Novel" in r.text and "Uploaded NovelUpdates page" in r.text
 
     r = client.post("/upload", files={"files": ("notes.txt", b"hello")})
-    assert "Upload .wacz archives or saved web pages" in r.text
+    assert "Upload .wacz archives, .epub e-books or saved web pages" in r.text
 
 
 def test_rescan_removes_deleted_archives(client):

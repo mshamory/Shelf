@@ -76,6 +76,29 @@ class ParsedArchive:
     skipped: list[str] = field(default_factory=list)
     # Chapter numbers seen in the archive without readable text -> reason (see xhr.py).
     unreadable: dict[int, str] = field(default_factory=dict)
+    metadata_source: str = "wacz"  # "wacz": a NovelUpdates page in it; "epub": the book's own
+
+
+ARCHIVE_SUFFIXES = (".wacz", ".epub")
+
+
+def library_rel(path: Path) -> str:
+    """A file's path in the library folder, as listed there: a file linked in from
+    elsewhere (a symlink) keeps the name it has in the library."""
+    try:
+        return str(path.relative_to(settings.library_dir))
+    except ValueError:
+        return str(path.resolve().relative_to(settings.library_dir.resolve()))
+
+
+def parse_book(path: Path) -> ParsedArchive:
+    """An EPUB as an archive: chapters in the book's order, its metadata and cover."""
+    from .epub import parse_epub
+
+    book = parse_epub(path, library_rel(path))
+    meta = book.metadata if book.metadata.title or book.metadata.authors else None
+    return ParsedArchive(archive_title=book.title, chapters=book.chapters, metadata=meta,
+                         cover=book.cover, skipped=book.skipped, metadata_source="epub")
 
 
 def _page_from_capture(
@@ -276,7 +299,7 @@ def _numbers_from_title_pattern(chapters: list[ExtractedChapter]) -> None:
         if f is None:
             continue
         c.number, c.season, c.season_word = f[0], None, ""
-        if not f[1]:
+        if not re.search(r"\w", f[1]):  # just the number ("17", ".256")
             c.title = f"Chapter {f[0]:g}"
 
 
@@ -647,7 +670,7 @@ def apply_metadata(
 
 def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     """Create or refresh the Novel for a WACZ file. Returns the novel."""
-    rel = str(path.resolve().relative_to(settings.library_dir.resolve()))
+    rel = library_rel(path)
     stat = path.stat()
     novel = session.exec(select(Novel).where(Novel.wacz_path == rel)).first()
     if (
@@ -666,7 +689,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
 
     novel.wacz_size, novel.wacz_mtime = stat.st_size, stat.st_mtime
     try:
-        parsed = parse_wacz(path)
+        parsed = parse_book(path) if path.suffix.lower() == ".epub" else parse_wacz(path)
     except Exception as e:  # corrupt zip, unreadable WARC, ...
         log.exception("Failed to import %s", path)
         novel.import_error = f"{type(e).__name__}: {e}"
@@ -749,8 +772,8 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
         novel.last_position = 0.0
 
     # Metadata from the archive wins over nothing, but never overrides user-supplied metadata.
-    if parsed.metadata and novel.metadata_source in (None, "wacz"):
-        apply_metadata(novel, parsed.metadata, "wacz", parsed.cover)
+    if parsed.metadata and novel.metadata_source in (None, parsed.metadata_source):
+        apply_metadata(novel, parsed.metadata, parsed.metadata_source, parsed.cover)
 
     session.commit()
     session.refresh(novel)
@@ -797,7 +820,18 @@ def resequence(chapters: list[Chapter]) -> None:
     """Renumber positions after numbers/seasons were edited."""
     numbered = [c for c in chapters if c.number is not None]
     if len(numbered) >= max(1, len(chapters) // 2):
-        for i, ch in enumerate(sorted(chapters, key=chapter_sort_key)):
+        # An unnumbered chapter (an afterword, a side story between chapters) stays after
+        # the chapter it follows now.
+        keys, prev = {}, (0, float("-inf"))
+        for ch in sorted(chapters, key=lambda c: c.position):
+            if ch.number is not None:
+                prev = (ch.season or 0, ch.number)
+                keys[id(ch)] = (*prev, 0, ch.position)
+            elif ch.season is None or (ch.season or 0) == prev[0]:
+                keys[id(ch)] = (*prev, 1, ch.position)
+            else:
+                keys[id(ch)] = (ch.season or 0, float("-inf"), 1, ch.position)
+        for i, ch in enumerate(sorted(chapters, key=lambda c: keys[id(c)])):
             ch.position = i
         return
     # Mostly unnumbered: capture order is all there is for those, so they stay where they
@@ -839,7 +873,8 @@ def scan_library(force: bool = False) -> None:
         except FileNotFoundError:
             outdated = True
         force = force or outdated
-        files = sorted(p for p in settings.library_dir.rglob("*.wacz") if p.is_file())
+        files = sorted(p for p in settings.library_dir.rglob("*")
+                       if p.suffix.lower() in ARCHIVE_SUFFIXES and p.is_file())
         scan_status.running, scan_status.done, scan_status.total = True, 0, len(files)
         scan_status.errors = []
         with Session(get_engine()) as session:
@@ -861,7 +896,7 @@ def scan_library(force: bool = False) -> None:
                     if not has_archive(novel) and refresh_captures(session, novel):
                         session.commit()
             # Forget novels whose files have disappeared.
-            present = {str(p.resolve().relative_to(settings.library_dir.resolve())) for p in files}
+            present = {library_rel(p) for p in files}
             for novel in session.exec(select(Novel)).all():
                 if not has_archive(novel) or novel.wacz_path in present:
                     continue
