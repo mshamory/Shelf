@@ -280,3 +280,33 @@ def test_part_after_chapter_number():
     assert chapter_number("Chapter 191 Part 2") == 191.002
     assert chapter_number("Chapter 12 (Part 1)") == 12.001
     assert chapter_number("Part 2 Chapter 16") == 16
+
+
+def test_numbers_from_short_name_and_number_titles():
+    """"OVRMMO 106: Name": the series' short name, the number, then the chapter's name.
+    Numbered extras follow the story's order instead of becoming side stories."""
+    from shelf.extract import SIDE_SEASON
+    from shelf.library import _numbers_from_title_pattern
+
+    titles = ["OVRMMO 106: The Last Stratagem", "OVRMMO17: The Arrow", "OVRMMO 099: Invasion: Part 2",
+              "OVRMMO 097.5: A Conference Room", "OVRMMO 021 - Test Shooting", "Afterword"]
+    chapters = [_ec(t, url=f"https://tl.example/2016/01/0{i}/{i}/") for i, t in enumerate(titles)]
+    extra = _ec("OVRMMO 094.5: Extra Edition; Forums", season=SIDE_SEASON)
+    _numbers_from_title_pattern([*chapters, extra])
+    assert [c.number for c in chapters] == [106, 17, 99, 97.5, 21, None]
+    assert extra.number == 94.5 and extra.season is None
+    # Too few chapters share the pattern: nothing is guessed.
+    few = [_ec("Level 5 Hero"), _ec("Prologue"), _ec("Interlude"), _ec("Epilogue")]
+    _numbers_from_title_pattern(few)
+    assert all(c.number is None for c in few)
+
+
+def test_resequence_orders_numbered_among_unnumbered():
+    from shelf.db import Chapter
+    from shelf.library import resequence
+
+    chs = [Chapter(novel_id=1, position=i, number=n, title=str(i))
+           for i, n in enumerate([3, None, None, 1, None, None])]
+    resequence(chs)
+    order = [c.number for c in sorted(chs, key=lambda c: c.position)]
+    assert order == [1, None, None, 3, None, None]  # unnumbered stay; 1 and 3 swap

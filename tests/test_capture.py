@@ -349,3 +349,37 @@ def test_replaced_chapters_keep_their_history(client):  # noqa: F811
     ch = chapter2()
     assert ch.origin == "browser" and "Wrong novel" in ch.content_html
     assert client.post(f"/chapter/{ch.id}/history/999/restore").status_code == 404
+
+
+def test_captures_numbered_by_shared_title_pattern(client):  # noqa: F811
+    """Pages titled "OVRMMO 12: Name" on a blog that files posts by date (some with a post
+    number as the address): numbered by the titles once most of them follow the pattern;
+    "No section" takes a chapter out of the side stories."""
+    import re
+
+    nid = client.post("/api/novels", json={"title": "Old Man VRMMO"}).json()["novel"]["id"]
+    names = {12: "Arrows", 13: "Boots", 14: "Extra Edition; Forums", 15: "Bows"}
+    for n, name in names.items():
+        url = f"https://tl.example/2016/01/{n:02d}/" + (
+            "1274/" if n == 13 else f"ovrmmo-{n}-{name.split(';')[0].lower().replace(' ', '-')}/")
+        r = client.post(f"/api/novels/{nid}/chapters", json={
+            "url": url, "html": page(n, title=f"OVRMMO {n}: {name} – TL Site").replace(
+                f"Chapter {n}: Stop {n}", f"OVRMMO {n}: {name}")})
+        assert r.status_code == 200, r.text
+    html = client.get(f"/novel/{nid}?hidden=1").text
+    numbers = [float(x) for x in re.findall(r'<small class="muted">#([\d.]+)</small>', html)]
+    assert numbers == [12, 13, 14, 15]  # not 1274; the extra in the story's order
+    assert "Side stories" not in html
+
+    # A side story is put in its own section; "No section" takes it out.
+    client.post(f"/api/novels/{nid}/chapters", json={
+        "url": "https://tl.example/2016/02/01/side-story-a-day-off/",
+        "html": page(1, title="Side Story: A Day Off – TL Site").replace(
+            "Chapter 1: Stop 1", "Side Story: A Day Off")})
+    html = client.get(f"/novel/{nid}?hidden=1").text
+    assert "Side stories" in html and 'value="none"' in html
+    ch = re.search(r'id="ch-(\d+)"[^>]*>\s*<a href="/chapter/\d+">Side Story', html).group(1)
+    client.post(f"/chapter/{ch}/edit", data={"title": "", "number": "14.5", "season": "none"})
+    html = client.get(f"/novel/{nid}?hidden=1").text
+    assert "Side stories" not in html
+    assert html.index("OVRMMO 14:") < html.index("Side Story: A Day Off") < html.index("OVRMMO 15:")

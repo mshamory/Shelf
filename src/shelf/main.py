@@ -506,6 +506,9 @@ def edit_chapter(
     if season == "auto":
         ch.season, ch.season_label, ch.custom_season = (
             ch.auto_season, ch.auto_season_label, False)
+    elif season == "none":  # out of every section: the main story's order
+        ch.season, ch.season_label = None, ""
+        ch.custom_season = ch.auto_season is not None
     else:
         labels = dict(novel_seasons(session, ch.novel_id))
         try:

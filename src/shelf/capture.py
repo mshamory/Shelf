@@ -40,6 +40,7 @@ from .library import (
     _url_key,
     captures_dir,
     resequence,
+    title_pattern_numbers,
 )
 from .wacz import normalize_url
 
@@ -108,10 +109,9 @@ def extract_page(url: str, html: str, series: str) -> ExtractedChapter:
     chapter = ExtractedChapter(url=normalize_url(url), title=title or own_title or url,
                                html=content, text_length=text_length(content), ts="")
     classify(chapter, url_path_text(url))
-    if chapter.number is None:
-        last = urlsplit(url).path.rstrip("/").rpartition("/")[2]
-        if last.isdigit():  # /series/name/1009
-            chapter.number = float(last)
+    parts = [p for p in urlsplit(url).path.split("/") if p]
+    if chapter.number is None and parts and parts[-1].isdigit() and not _dated(parts):
+        chapter.number = float(parts[-1])  # /series/name/1009 (not a blog's /2016/09/26/1274/)
     if heading and chapter.number is not None and chapter_number(heading) is None:
         n = chapter.number
         chapter.title = f"Chapter {int(n) if n == int(n) else n}: {heading}"
@@ -173,10 +173,41 @@ def find_target(chapters: list[Chapter], url: str, number: float | None,
     return None
 
 
+def _pattern_numbers(chapters: list[Chapter], ec: ExtractedChapter | None = None):
+    """Numbers from the titles' shared pattern ("OVRMMO 106: …", see
+    library.title_pattern_numbers) for the unnumbered chapters, and for `ec` if it's
+    unnumbered too (set on it directly). Returns (chapter, (number, prefix)) to apply."""
+    loose = [c for c in chapters if c.auto_number is None]
+    items = [(c.auto_title or c.title, c.url, c.auto_season == SIDE_SEASON) for c in loose]
+    new = ec is not None and ec.number is None
+    if new:
+        items.append((ec.title, ec.url, ec.season == SIDE_SEASON))
+    found = title_pattern_numbers(items)
+    if new:
+        f = found.pop()
+        if f is not None:
+            ec.number, ec.number_end = f[0], None
+            if ec.season == SIDE_SEASON:
+                ec.season, ec.season_word = None, ""
+    return [(c, f) for c, f in zip(loose, found, strict=True) if f is not None]
+
+
+def _apply_pattern_numbers(found) -> None:
+    for c, (n, _prefix) in found:
+        c.auto_number, c.auto_number_end = n, None
+        if not c.custom_number:
+            c.number, c.number_end = n, None
+        if c.auto_season == SIDE_SEASON:  # a numbered "Extra Edition" in the story's order
+            c.auto_season, c.auto_season_label = None, ""
+            if not c.custom_season:
+                c.season, c.season_label = None, ""
+
+
 def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str = "",
                 number: float | None = None, dry_run: bool = False) -> CaptureResult:
     existing = list(novel.chapters)
     ec = extract_page(url, html, novel.title)
+    numbered_by_pattern = _pattern_numbers(existing, ec)
     _fit_range(ec, existing)
     if number is not None:
         if number != ec.number:
@@ -221,6 +252,7 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
     if target is None:
         session.add(ch)
         existing.append(ch)
+    _apply_pattern_numbers([(c, f) for c, f in numbered_by_pattern if c is not ch])
     resequence(existing)
     if ch.number is not None and ch.number == int(ch.number) and novel.unreadable_chapters:
         filled = set(covered(ch.number, ch.number_end))
@@ -358,5 +390,6 @@ def refresh_captures(session: Session, novel: Novel) -> int:
             ch.season, ch.season_label = season, label
         updated += 1
     if updated:
+        _apply_pattern_numbers(_pattern_numbers(chapters))
         resequence(chapters)
     return updated

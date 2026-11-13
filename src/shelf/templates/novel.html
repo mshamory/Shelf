@@ -169,7 +169,7 @@
   {% endif %}
   {% if show_hidden %}
   <p class="muted"><small>Edit titles, or set a chapter's number to move it — chapters are ordered by
-    {% if seasons %}season and {% endif %}number. Leave a field empty to use the detected value. Edits are kept when the archive is re-imported.</small></p>
+    {% if seasons %}section and {% endif %}number. Leave a field empty to use the detected value{% if seasons %}; choose <em>No section</em> to take a chapter out of its section{% endif %}. Edits are kept when the archive is re-imported.</small></p>
   {% endif %}
   <ol class="chapters{% if show_hidden %} editing{% endif %}">
     {% for c in chapters %}
@@ -207,6 +207,7 @@
               <label>Season
                 <select name="season">
                   <option value="auto">Detected{% if c.auto_season_label %} ({{ c.auto_season_label }}){% endif %}</option>
+                  <option value="none" {% if c.custom_season and c.season is none %}selected{% endif %}>No section</option>
                   {% for s, label in seasons %}<option value="{{ s }}" {% if c.custom_season and c.season == s %}selected{% endif %}>{{ label }}</option>{% endfor %}
                 </select>
               </label>

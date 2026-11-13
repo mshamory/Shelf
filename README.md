@@ -40,9 +40,12 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   never preferred; otherwise the site with the most chapters wins. Site names, series names
   and aggregator "Read … Online" text in chapter titles are removed; when every page is titled
   with just the site name, the chapter's own heading is used. Chapters titled with a
-  repeated word and a number ("Patron 12", "Volume 3"), or with just a number once the series
+  repeated word and a number ("Patron 12", "Volume 3"), with a short name, a number and the
+  chapter's name ("OVRMMO 106: The Last Stratagem"), or with just a number once the series
   and site names are removed ("Series — 17 | Site", when the URL ends in 17 too), are
-  numbered by it.
+  numbered by it when most unnumbered chapters follow the same pattern. Extras numbered that
+  way ("OVRMMO 94.5: Extra Edition") stay in the story's order instead of the side stories.
+  Blog post IDs in addresses (`/2016/09/26/1274/`) aren't taken for chapter numbers.
 - **NovelUpdates metadata**: title, cover, description, authors, genres, tags, rating, status,
   associated names, and so on.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment

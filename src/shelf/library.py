@@ -64,7 +64,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "13"
+EXTRACTOR_VERSION = "14"
 
 
 @dataclass
@@ -225,32 +225,59 @@ def promote_generic_titles(chapters: list[ExtractedChapter], series: str) -> Non
 
 
 TITLE_NUMBER_RE = re.compile(r"^(.*?\D)?\s*#?(\d+(?:\.\d+)?)\s*$")
+# "OVRMMO 106: The Last Stratagem", "VRMMO 003 - Time to Leave", "OVRMMO17: Arrows": a
+# short name, the number, then the chapter's own name.
+LEAD_NUMBER_RE = re.compile(
+    r"^([^\d:]*?[^\W\d_])\s*#?(\d+(?:\.\d+)?)(?=\s*[:\-–—]\s*\S|\s+[^\W\d])")
+
+
+def title_pattern_numbers(items: list[tuple[str, str, bool]]) -> list[tuple[float, str] | None]:
+    """Numbers for unnumbered chapters titled alike: "<same words> <n>" ("Patron 12"),
+    "<same words> <n>: <name>" ("OVRMMO 106: …"), or just a number once the site and
+    series are removed ("Series — 17 | Site"; only if the URL ends in it too).
+
+    `items` are (title, url, is_side_story). The pattern counts when most of the unnumbered
+    main-story chapters follow it; side stories that follow it are numbered too ("OVRMMO
+    94.5: Extra Edition" sits between 94 and 95). Returns (number, prefix) or None per item.
+    """
+    # Each title's readings, by prefix: "OVRMMO 099: Invasion: Part 2" reads both as
+    # "OVRMMO" 99 and as "OVRMMO 099: Invasion: Part" 2; the novel's pattern decides.
+    found: list[dict[str, float]] = []
+    for title, url, _side in items:
+        t = title.strip()
+        readings = {}
+        m = TITLE_NUMBER_RE.match(t)
+        if m and (m.group(1) or _number_in_url(url, m.group(2))):
+            readings[(m.group(1) or "").strip().casefold()] = float(m.group(2))
+        if m := LEAD_NUMBER_RE.match(t):
+            readings[m.group(1).strip().casefold()] = float(m.group(2))
+        found.append(readings)
+    main = [f for f, (_t, _u, side) in zip(found, items, strict=True) if not side]
+    prefixes = Counter(p for f in main for p in f)
+    if not prefixes:
+        return [None] * len(items)
+    prefix, count = prefixes.most_common(1)[0]
+    if count < max(3, len(main) * 0.8):
+        return [None] * len(items)
+    return [(f[prefix], prefix) if prefix in f else None for f in found]
 
 
 def _numbers_from_title_pattern(chapters: list[ExtractedChapter]) -> None:
-    """Number chapters titled "<same words> <n>" ("Patron 12", "Series Volume 3") when most
-    unnumbered chapters follow that pattern. A title that is just a number once the site
-    and series are removed ("Series — 17 | Site") counts too, if its URL has that number."""
+    """Number chapters by their titles' shared pattern (see title_pattern_numbers)."""
     # Compare titles without their site suffix ("Patron 3 – Site"), cleaned per site.
     clean: dict[int, str] = {}
     for group in _groups_by_site(chapters):
         for c, t in zip(group, strip_common_affixes([c.title for c in group]), strict=True):
             clean[id(c)] = t
-    loose = [c for c in chapters if c.number is None and c.season is None]
-    found = [(c, TITLE_NUMBER_RE.match(clean[id(c)].strip())) for c in loose]
-    found = [(c, m) for c, m in found
-             if m and (m.group(1) or _number_in_url(c.url, m.group(2)))]
-    prefixes = Counter((m.group(1) or "").strip().casefold() for _c, m in found)
-    if not prefixes:
-        return
-    prefix, count = prefixes.most_common(1)[0]
-    if count < max(3, len(loose) * 0.8):
-        return
-    for c, m in found:
-        if (m.group(1) or "").strip().casefold() == prefix:
-            c.number = float(m.group(2))
-            if not prefix:
-                c.title = f"Chapter {m.group(2)}"
+    loose = [c for c in chapters if c.number is None and c.season in (None, SIDE_SEASON)]
+    found = title_pattern_numbers([(clean[id(c)], c.url, c.season == SIDE_SEASON)
+                                   for c in loose])
+    for c, f in zip(loose, found, strict=True):
+        if f is None:
+            continue
+        c.number, c.season, c.season_word = f[0], None, ""
+        if not f[1]:
+            c.title = f"Chapter {f[0]:g}"
 
 
 def _number_in_url(url: str, number: str) -> bool:
@@ -768,10 +795,19 @@ def chapter_sort_key(ch: Chapter):
 
 def resequence(chapters: list[Chapter]) -> None:
     """Renumber positions after numbers/seasons were edited."""
-    numbered = sum(c.number is not None for c in chapters)
-    if numbered < max(1, len(chapters) // 2):
-        return  # mostly unnumbered: capture order is all we have, keep it
-    for i, ch in enumerate(sorted(chapters, key=chapter_sort_key)):
+    numbered = [c for c in chapters if c.number is not None]
+    if len(numbered) >= max(1, len(chapters) // 2):
+        for i, ch in enumerate(sorted(chapters, key=chapter_sort_key)):
+            ch.position = i
+        return
+    # Mostly unnumbered: capture order is all there is for those, so they stay where they
+    # are, and the numbered chapters are put in order among the places they hold.
+    wanted = sorted(numbered, key=chapter_sort_key)
+    ordered = sorted(chapters, key=lambda c: c.position)
+    places = [i for i, c in enumerate(ordered) if c.number is not None]
+    for i, ch in enumerate(ordered):
+        ch.position = i
+    for i, ch in zip(places, wanted, strict=True):
         ch.position = i
 
 
