@@ -49,7 +49,8 @@ metadata from [NovelUpdates](https://www.novelupdates.com).
   settings, ←/→ keys for chapter navigation, and progress saved per novel (chapter and
   scroll position).
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
-  chapter search, upload of WACZ files from the browser, and hiding of non-chapter pages.
+  chapter search, upload of WACZ files and saved web pages from the browser, and hiding of
+  non-chapter pages.
 
 ### Browser extension
 
@@ -96,6 +97,29 @@ Open the extension (or press Alt+Shift+S) and set Shelf's address under *Setting
 is `http://localhost:8000`. If your browser refuses a plain-HTTP address on your network,
 serve Shelf over HTTPS through a reverse proxy.
 
+### Saved web pages
+
+Pages saved from the browser (Ctrl+S) can be uploaded as chapters, one file per page, as
+"Web page, HTML only", "Web page, complete" (`.html`) or "Web page, single file" (`.mhtml`).
+Use **Upload** on the library page, where you choose the novel or start a new one (its title
+is guessed from the pages' titles if you leave it empty), or **Add saved pages** on a novel's
+page. Several files can be uploaded at once, also mixed with `.wacz` archives.
+
+- Each page is read like one sent by the extension. The page's address, which numbering and
+  matching rely on, comes from the file: Chrome's "saved from" note, the MHTML header, or the
+  page's canonical link. A page without any is named after its file.
+- A saved NovelUpdates series page among the files sets the novel's metadata (and its title).
+- Pages replace chapters with the same address or number; the replaced text stays in the
+  chapter's history. Images saved into a local `…_files` folder are left out, since that
+  folder isn't uploaded.
+- "HTML only" saves the page as the site sent it, so chapters that the site's scripts load
+  afterwards may be missing; save "complete" or "single file" for those. Text hidden with
+  CSS can't be detected in a saved file, so the extension is better for sites that hide
+  anti-scraping text that way.
+
+Like chapters sent from the extension, uploaded pages are kept when an archive is re-imported,
+and saving them doesn't need `SHELF_ALLOW_UPLOADS` (which covers archives only).
+
 ### Getting NovelUpdates metadata
 
 NovelUpdates is behind bot protection, and Shelf does not try to get around it. Use one of
@@ -105,7 +129,8 @@ these instead, in order of reliability:
    `novelupdates.com/series/…` page, Shelf picks up its metadata and cover automatically.
 2. **Send the page with the browser extension** (see above).
 3. **Upload a saved page.** Open the series page in your browser, save it
-   (Ctrl+S → "Web page, HTML only"), and upload it on the novel's page.
+   (Ctrl+S → "Web page, HTML only"), and upload it on the novel's page, or together with
+   the chapters' saved pages.
 4. **Fetch by URL.** A plain HTTP request; it works only if NovelUpdates allows it.
 
 You can also edit the title, authors, genres, tags and status by hand.

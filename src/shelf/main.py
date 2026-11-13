@@ -54,6 +54,7 @@ from .library import (
     start_scan,
 )
 from .novelupdates import MetadataError, fetch_series, is_series_url, parse_series_page
+from .saved import MAX_PAGE_BYTES, add_saved_pages, is_saved_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 
 log = logging.getLogger("shelf")
@@ -165,7 +166,8 @@ def library(request: Request, session: SessionDep, q: str = "", sort: str = "rec
         request,
         "library.html",
         {"novels": novels, "counts": counts, "progress": progress, "q": q, "sort": sort,
-         "scan": scan_status, "missing": missing},
+         "scan": scan_status, "missing": missing,
+         "all_novels": sorted(session.exec(select(Novel)).all(), key=lambda n: n.title.lower())},
     )
 
 
@@ -184,12 +186,47 @@ SAFE_NAME_RE = re.compile(r"[^\w.\- ()\[\]]+")
 
 
 @app.post("/upload")
-async def upload(session: SessionDep, file: UploadFile):
-    if not settings.allow_uploads:
-        raise HTTPException(403, "Uploads are disabled")
+async def upload(session: SessionDep, files: list[UploadFile],
+                 novel: Annotated[str, Form()] = "new", title: Annotated[str, Form()] = ""):
+    """WACZ archives (each one a novel) and saved pages (chapters for `novel`, or for a new
+    novel), in one upload."""
+    archives = [f for f in files if (f.filename or "").lower().endswith(".wacz")]
+    pages = [f for f in files if is_saved_page(f.filename or "")]
+    others = [f.filename for f in files if f not in archives and f not in pages]
+    if not archives and not pages:
+        return flash_redirect("/", "Upload .wacz archives or saved web pages (.html, .mhtml)",
+                              error=True)
+    if archives and not settings.allow_uploads:
+        return flash_redirect("/", "Uploading archives is disabled", error=True)
+    target = None
+    if pages and novel != "new":
+        try:
+            target = get_novel(session, int(novel))
+        except (ValueError, HTTPException):
+            return flash_redirect("/", "Unknown novel", error=True)
+
+    messages, errors, touched = [], [], []
+    for f in archives:
+        imported = await _import_uploaded_archive(session, f)
+        touched.append(imported.id)
+        if imported.import_error:
+            errors.append(f"{f.filename}: {imported.import_error}")
+        else:
+            messages.append(f"Imported {len(imported.chapters)} chapters from {f.filename}")
+    if pages:
+        report = await _add_uploaded_pages(session, target, pages, title)
+        if report.novel is not None:
+            touched.append(report.novel.id)
+        (messages if report.novel is not None else errors).append(report.summary())
+    if others:
+        errors.append("Not a .wacz archive or saved page: " + ", ".join(others))
+    dest = f"/novel/{touched[0]}" if len(set(touched)) == 1 else "/"
+    msg = ". ".join(messages + errors)
+    return flash_redirect(dest, msg, error=not messages)
+
+
+async def _import_uploaded_archive(session: Session, file: UploadFile) -> Novel:
     name = SAFE_NAME_RE.sub("_", Path(file.filename or "upload.wacz").name).strip(" .")
-    if not name.lower().endswith(".wacz"):
-        return flash_redirect("/", "Only .wacz files can be uploaded", error=True)
     dest_dir = settings.library_dir / "uploads"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / name
@@ -199,10 +236,27 @@ async def upload(session: SessionDep, file: UploadFile):
         i += 1
     with dest.open("wb") as out:
         await run_in_threadpool(shutil.copyfileobj, file.file, out, 1024 * 1024)
-    novel = await run_in_threadpool(import_wacz, session, dest)
-    if novel.import_error:
-        return flash_redirect(f"/novel/{novel.id}", novel.import_error, error=True)
-    return flash_redirect(f"/novel/{novel.id}", f"Imported {len(novel.chapters)} chapters")
+    return await run_in_threadpool(import_wacz, session, dest)
+
+
+async def _add_uploaded_pages(session: Session, novel: Novel | None, files: list[UploadFile],
+                              title: str = ""):
+    data = [(Path(f.filename or "page.html").name, await f.read(MAX_PAGE_BYTES + 1))
+            for f in files]
+    return await run_in_threadpool(add_saved_pages, session, novel, data, title)
+
+
+@app.post("/novel/{novel_id}/pages")
+async def upload_pages(session: SessionDep, novel_id: int, files: list[UploadFile]):
+    """Saved web pages as chapters of this novel."""
+    novel = get_novel(session, novel_id)
+    pages = [f for f in files if is_saved_page(f.filename or "")]
+    if not pages:
+        return flash_redirect(f"/novel/{novel_id}",
+                              "Choose saved web pages (.html, .htm or .mhtml)", error=True)
+    report = await _add_uploaded_pages(session, novel, pages)
+    return flash_redirect(f"/novel/{novel_id}", report.summary(),
+                          error=not report.actions and not report.metadata)
 
 
 # -- novel -------------------------------------------------------------------

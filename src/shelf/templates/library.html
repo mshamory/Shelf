@@ -15,16 +15,28 @@
         {% if scan.running %}Scanning {{ scan.done }}/{{ scan.total }}…{% else %}Rescan library{% endif %}
       </button>
     </form>
-    {% if settings.allow_uploads %}
     <details class="dropdown upload">
-      <summary role="button">Add WACZ</summary>
+      <summary role="button">Upload</summary>
       <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form"
             onsubmit="this.querySelector('button').setAttribute('aria-busy','true')">
-        <input type="file" name="file" accept=".wacz" required>
+        <label>{% if settings.allow_uploads %}Archives (.wacz) or saved{% else %}Saved{% endif %} web pages
+          <input type="file" name="files" multiple required
+                 accept="{% if settings.allow_uploads %}.wacz,{% endif %}.html,.htm,.xhtml,.mhtml,.mht,text/html,multipart/related">
+        </label>
+        <small class="muted">Saved pages (Ctrl+S in the browser) become chapters, one page each. Include a
+          saved NovelUpdates series page for the novel's metadata.</small>
+        <label>Add saved pages to
+          <select name="novel" onchange="this.form.querySelector('.new-title').hidden = this.value !== 'new'">
+            <option value="new">A new novel</option>
+            {% for n in all_novels %}<option value="{{ n.id }}">{{ n.title }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="new-title">New novel's title
+          <input name="title" placeholder="Guessed from the pages">
+        </label>
         <button type="submit">Upload &amp; import</button>
       </form>
     </details>
-    {% endif %}
   </div>
 </section>
 
@@ -60,7 +72,7 @@
 <article class="empty">
   <h3>Your shelf is empty</h3>
   <p>Put <code>.wacz</code> archives in the library folder
-     (<code>{{ settings.library_dir }}</code>) and rescan{% if settings.allow_uploads %}, or upload one with <em>Add WACZ</em>{% endif %}.</p>
+     (<code>{{ settings.library_dir }}</code>) and rescan, or use <em>Upload</em>{% if settings.allow_uploads %} for archives and{% else %} for{% endif %} pages saved from your browser.</p>
   <p>Each archive becomes one novel. Capture chapters with
      <a href="https://archiveweb.page" target="_blank" rel="noopener">ArchiveWeb.page</a> or
      <a href="https://webrecorder.net/browsertrix/" target="_blank" rel="noopener">Browsertrix</a>.

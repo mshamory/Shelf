@@ -38,7 +38,7 @@ body { background: var(--pico-background-color); }
 .toolbar .filter select { width: auto; margin: 0; }
 .toolbar .actions { display: flex; gap: .5rem; align-items: start; }
 .toolbar .actions form, .toolbar .actions details { margin: 0; }
-.upload .upload-form { position: absolute; right: 0; z-index: 5; min-width: 18rem; padding: 1rem; margin-top: .25rem; background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); box-shadow: var(--pico-card-box-shadow); }
+.upload .upload-form { position: absolute; right: 0; z-index: 5; width: min(24rem, calc(100vw - 2rem)); padding: 1rem; margin-top: .25rem; background: var(--pico-card-background-color); border-radius: var(--pico-border-radius); box-shadow: var(--pico-card-box-shadow); }
 .upload { position: relative; }
 .upload summary { margin: 0; }
 .scan-errors { margin-bottom: 1rem; }
@@ -159,3 +159,4 @@ body { background: var(--pico-background-color); }
 .history-actions { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding-block: .5rem; }
 .history-actions form { margin: 0; }
 .history-text { border-top: 1px solid var(--pico-muted-border-color); padding-top: 1rem; }
+.upload-form small { display: block; margin-bottom: 1rem; }

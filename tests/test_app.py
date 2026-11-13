@@ -58,7 +58,7 @@ def test_scan_read_and_progress(client, tmp_path):
 def test_upload_and_metadata_upload(client, tmp_path):
     src = build_wacz(tmp_path / "up.wacz")
     with src.open("rb") as fh:
-        r = client.post("/upload", files={"file": ("../evil name.wacz", fh)}, follow_redirects=False)
+        r = client.post("/upload", files={"files": ("../evil name.wacz", fh)}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/novel/1")
     from shelf.config import settings
     assert (settings.library_dir / "uploads" / "evil name.wacz").exists()
@@ -70,9 +70,8 @@ def test_upload_and_metadata_upload(client, tmp_path):
         r = client.post("/novel/1/metadata/upload", files={"file": ("nu.html", fh)})
     assert "The Sample Novel" in r.text and "Uploaded NovelUpdates page" in r.text
 
-    with (FIXTURES / "nu_series.html").open("rb") as fh:
-        r = client.post("/upload", files={"file": ("x.html", fh)})
-    assert "Only .wacz" in r.text
+    r = client.post("/upload", files={"files": ("notes.txt", b"hello")})
+    assert "Upload .wacz archives or saved web pages" in r.text
 
 
 def test_rescan_removes_deleted_archives(client):

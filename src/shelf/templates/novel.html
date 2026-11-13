@@ -107,6 +107,18 @@
         <a href="/novel/{{ novel.id }}?hidden=1" title="Hide pages that aren't chapters">Edit list</a>
         <a href="/novel/{{ novel.id }}/trim" title="Remove watermarks and translator notes">Trim text</a>
       {% endif %}
+      <details class="dropdown upload">
+        <summary class="outline secondary small" role="button">Add saved pages</summary>
+        <form method="post" action="/novel/{{ novel.id }}/pages" enctype="multipart/form-data" class="upload-form"
+              onsubmit="this.querySelector('button').setAttribute('aria-busy','true')">
+          <label>Pages saved from your browser
+            <input type="file" name="files" multiple required accept=".html,.htm,.xhtml,.mhtml,.mht,text/html,multipart/related">
+          </label>
+          <small class="muted">One chapter per page, numbered like captured chapters. A page that
+            matches an existing chapter replaces it; the old text stays in the chapter's history.</small>
+          <button type="submit" class="small">Add chapters</button>
+        </form>
+      </details>
       {% if has_archive(novel) %}<form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>{% endif %}
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
     </div>
