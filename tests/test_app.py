@@ -190,3 +190,8 @@ def test_edit_chapter_title_and_number(client):
     titles = re.findall(r'<li id="ch-\d+"[^>]*>\s*<a href="/chapter/\d+">([^<]*)</a>',
                         client.get("/novel/1").text)
     assert titles[1:3] == ["Chapter 3", "Chapter 2"] and "My Title" not in titles
+
+
+def test_pages_follow_the_system_theme(client):  # noqa: F811
+    # Pico's automatic dark mode applies only while <html> has no data-theme at all.
+    assert "data-theme" not in client.get("/").text.split("<head>")[0]
