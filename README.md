@@ -179,6 +179,22 @@ page in `pages/pages.jsonl` is a candidate chapter:
 Re-importing an archive after you add more captures keeps your reading progress and your
 hidden-page choices, matched by chapter URL.
 
+## Images in chapters
+
+A chapter shows only images Shelf has a copy of, so none break when a site moves or goes
+away:
+
+- Images in the novel's WACZ archive are shown from it; images in an e-book, from the book.
+- When the browser extension sends a chapter, Shelf asks it for the chapter's images it has
+  no copy of; the extension reads them as the page does (often from the browser's cache)
+  and Shelf keeps them with the novel's captures.
+- Site decoration is left out: the same picture in three or more chapters (an avatar, the
+  covers of other novels), and logos, buttons and banners (Ko-fi, Patreon, Discord, …).
+- Other images are left out: their addresses usually stop working.
+
+Chapters keep their images' original addresses, so an image saved later also shows in
+chapters captured before.
+
 ## How an EPUB becomes a novel
 
 Each `.epub` file in the library folder (or uploaded with **Upload**) is one novel, like a

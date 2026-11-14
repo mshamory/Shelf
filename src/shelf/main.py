@@ -44,6 +44,14 @@ from .db import (
 )
 from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
+from .images import (
+    STORED_NAME_RE,
+    images_dir,
+    read_archived_image,
+    resolve_images,
+    save_image,
+    wanted_images,
+)
 from .library import (
     ARCHIVE_SUFFIXES,
     apply_metadata,
@@ -607,6 +615,7 @@ def reader(request: Request, session: SessionDep, chapter_id: int, original: boo
     content, trimmed = ch.content_html, 0
     if rules and not original:
         content, trimmed = apply_rules(ch.content_html, rules)
+    content = resolve_images(session, novel, content)
     # Warn when the next chapter skips numbers (e.g. 128 -> 130), and list chapters known
     # to exist after the last one.
     gaps_ahead = []
@@ -643,10 +652,11 @@ def chapter_history(request: Request, session: SessionDep, chapter_id: int,
         raise HTTPException(404, "Chapter not found")
     versions = _chapter_versions(session, ch)
     shown = next((v for v in versions if v.id == show), None)
+    novel = get_novel(session, ch.novel_id)
     return templates.TemplateResponse(
         request, "history.html",
-        {"novel": get_novel(session, ch.novel_id), "chapter": ch, "versions": versions,
-         "shown": shown})
+        {"novel": novel, "chapter": ch, "versions": versions, "shown": shown,
+         "shown_html": resolve_images(session, novel, shown.content_html) if shown else ""})
 
 
 @app.post("/chapter/{chapter_id}/history/{version_id}/restore")
@@ -981,8 +991,11 @@ async def api_add_chapter(session: SessionDep, novel_id: int, body: ChapterPaylo
     except CaptureError as e:
         raise HTTPException(422, str(e)) from e
     ch = result.chapter
+    wanted = [] if body.dry_run else await run_in_threadpool(
+        wanted_images, session, novel, ch.content_html)
     return {
         "action": result.action,
+        "images_wanted": wanted,
         "replaced_title": result.replaced_title,
         "other_page": result.other_page,
         "dry_run": body.dry_run,
@@ -992,6 +1005,62 @@ async def api_add_chapter(session: SessionDep, novel_id: int, body: ChapterPaylo
                     "url": f"/chapter/{ch.id}" if ch.id else None},
         "novel": {"id": novel.id, "title": novel.title, "url": f"/novel/{novel.id}"},
     }
+
+
+class ImagePayload(BaseModel):
+    url: str
+    data: str  # base64
+
+
+class ImagesPayload(BaseModel):
+    images: list[ImagePayload]
+
+
+@app.post("/api/novels/{novel_id}/images")
+def api_add_images(session: SessionDep, novel_id: int, body: ImagesPayload):
+    """Images of chapters, sent by the browser extension after the chapter
+    (see `images_wanted`)."""
+    import base64
+    import binascii
+
+    novel = get_novel(session, novel_id)
+    saved = 0
+    for img in body.images[:200]:
+        try:
+            data = base64.b64decode(img.data, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        saved += save_image(novel.id, img.url, data)
+    return {"saved": saved}
+
+
+IMAGE_HEADERS = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"}
+
+
+@app.get("/novel/{novel_id}/image/{name}")
+def chapter_image(novel_id: int, name: str):
+    """An image stored with a chapter sent from the browser."""
+    import mimetypes
+
+    from fastapi.responses import FileResponse
+
+    path = images_dir(novel_id) / name
+    if not STORED_NAME_RE.match(name) or not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=mimetypes.guess_type(name)[0] or "image/jpeg",
+                        headers=IMAGE_HEADERS)
+
+
+@app.get("/novel/{novel_id}/archive-image")
+def archive_image(session: SessionDep, novel_id: int, url: str):
+    """An image in the novel's WACZ archive."""
+    from fastapi.responses import Response
+
+    found = read_archived_image(get_novel(session, novel_id), url)
+    if found is None:
+        raise HTTPException(404)
+    return Response(found[0], media_type=found[1], headers=IMAGE_HEADERS)
 
 
 @app.get("/extension.zip")

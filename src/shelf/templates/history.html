@@ -50,7 +50,7 @@
     <p class="muted chapter-meta">Earlier version, replaced {{ shown.saved_at.strftime('%Y-%m-%d') }}</p>
     <h1>{{ shown.get('title') }}</h1>
   </header>
-  <div class="chapter-body">{{ shown.content_html|safe }}</div>
+  <div class="chapter-body">{{ shown_html|safe }}</div>
 </section>
 {% endif %}
 {% endblock %}

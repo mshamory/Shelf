@@ -204,13 +204,65 @@ async function preview() {
   }
 }
 
+// The chapter's images Shelf has no copy of, read the way the page reads them (often from
+// the browser's cache), else fetched from here. Sent in small batches.
+async function sendImages(novelId, urls) {
+  if (!urls || !urls.length) return 0;
+  let found = [];
+  try {
+    const [res] = await api.scripting.executeScript({
+      target: { tabId },
+      func: async (list) => {
+        const out = [];
+        for (const url of list) {
+          try {
+            const r = await fetch(url, { cache: "force-cache" });
+            if (!r.ok) continue;
+            const blob = await r.blob();
+            if (!blob.type.startsWith("image/") || blob.size > 20e6) continue;
+            const data = await new Promise((resolve, reject) => {
+              const fr = new FileReader();
+              fr.onload = () => resolve(String(fr.result).split(",", 2)[1]);
+              fr.onerror = reject;
+              fr.readAsDataURL(blob);
+            });
+            out.push({ url, data });
+          } catch { /* not readable from the page: tried below */ }
+        }
+        return out;
+      },
+      args: [urls],
+    });
+    found = res.result || [];
+  } catch { /* the page can't be scripted any more */ }
+  for (const url of urls) {
+    if (found.some((i) => i.url === url)) continue;
+    const p = await coverPayload(url);
+    if (p && p.mime.startsWith("image/")) found.push({ url, data: p.data });
+  }
+  let saved = 0;
+  for (let i = 0; i < found.length; i += 8) {
+    const res = await call(`/api/novels/${novelId}/images`, { images: found.slice(i, i + 8) });
+    saved += res.saved;
+  }
+  return saved;
+}
+
 async function sendChapter(id) {
   setStatus("Sending…");
   const res = await call(`/api/novels/${id}/chapters`, chapterBody(false));
   await api.storage.local.set({ lastNovel: id });
   const verb = { added: "Added", replaced: "Replaced", updated: "Updated" }[res.action];
   const num = res.chapter.number != null ? ` (#${formatNumber(res.chapter.number)})` : "";
-  setStatus(`${verb} “${res.chapter.title}”${num} in ${res.novel.title}.`,
+  let images = "";
+  if (res.images_wanted && res.images_wanted.length) {
+    setStatus("Saving the chapter's images…");
+    const saved = await sendImages(res.novel.id, res.images_wanted).catch(() => 0);
+    const missed = res.images_wanted.length - saved;
+    images = saved ? ` With ${saved} image${saved === 1 ? "" : "s"}.` : "";
+    if (missed) images += ` ${missed} image${missed === 1 ? "" : "s"} couldn't be saved.`;
+  }
+  setStatus(`${verb} “${res.chapter.title}”${num} in ${res.novel.title}.${images}`,
     { link: { href: server + res.chapter.url, text: "Read" } });
   return res;
 }
