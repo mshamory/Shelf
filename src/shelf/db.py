@@ -20,6 +20,7 @@ class Novel(SQLModel, table=True):
     title: str = ""
     added_at: datetime = Field(default_factory=utcnow)
     import_error: str | None = None
+    import_warning: str | None = None  # imported, but parts left out (a volume with DRM)
 
     # NovelUpdates metadata
     nu_url: str | None = None

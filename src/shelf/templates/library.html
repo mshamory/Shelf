@@ -26,7 +26,9 @@
         <small class="muted">{% if settings.allow_uploads %}Each archive or e-book becomes a novel. {% endif %}Saved pages
           (Ctrl+S in the browser) become chapters, one page each. Include a saved NovelUpdates series page for
           the novel's metadata.</small>
-        <label>Add saved pages to
+        {% if settings.allow_uploads %}<label><input type="checkbox" name="volumes" value="true">
+          The e-books are volumes of one novel</label>{% endif %}
+        <label>Add saved pages{% if settings.allow_uploads %} and e-book volumes{% endif %} to
           <select name="novel" onchange="this.form.querySelector('.new-title').hidden = this.value !== 'new'">
             <option value="new">A new novel</option>
             {% for n in all_novels %}<option value="{{ n.id }}">{{ n.title }}</option>{% endfor %}
@@ -74,7 +76,8 @@
   <h3>Your shelf is empty</h3>
   <p>Put <code>.wacz</code> archives or <code>.epub</code> e-books in the library folder
      (<code>{{ settings.library_dir }}</code>) and rescan, or use <em>Upload</em>{% if settings.allow_uploads %} for archives and{% else %} for{% endif %} pages saved from your browser.</p>
-  <p>Each archive or e-book becomes one novel. Capture chapters with
+  <p>Each archive or e-book becomes one novel; e-books together in a folder are volumes of one novel, a
+     section each. Capture chapters with
      <a href="https://archiveweb.page" target="_blank" rel="noopener">ArchiveWeb.page</a> or
      <a href="https://webrecorder.net/browsertrix/" target="_blank" rel="noopener">Browsertrix</a>.
      If the archive also includes the novel's NovelUpdates series page, its metadata is picked up automatically.</p>

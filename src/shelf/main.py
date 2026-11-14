@@ -57,6 +57,7 @@ from .library import (
 from .novelupdates import MetadataError, fetch_series, is_series_url, parse_series_page
 from .saved import MAX_PAGE_BYTES, add_saved_pages, is_saved_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
+from .volumes import UPLOADS_DIR, volume_number
 
 log = logging.getLogger("shelf")
 HERE = Path(__file__).parent
@@ -79,6 +80,17 @@ app.add_middleware(CORSMiddleware, allow_origin_regex=r"^(moz|chrome|safari-web)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.globals.update(version=__version__, settings=settings, has_archive=has_archive)
+
+
+def epub_file(novel: Novel, url: str) -> str:
+    """The e-book a chapter is from: the novel's file, or the volume in its folder."""
+    if novel.wacz_path.endswith("/"):
+        name = url.removeprefix("epub:").split("/", 1)[0]
+        return novel.wacz_path + name
+    return novel.wacz_path
+
+
+templates.env.globals["epub_file"] = epub_file
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -188,9 +200,11 @@ SAFE_NAME_RE = re.compile(r"[^\w.\- ()\[\]]+")
 
 @app.post("/upload")
 async def upload(session: SessionDep, files: list[UploadFile],
-                 novel: Annotated[str, Form()] = "new", title: Annotated[str, Form()] = ""):
-    """WACZ archives (each one a novel) and saved pages (chapters for `novel`, or for a new
-    novel), in one upload."""
+                 novel: Annotated[str, Form()] = "new", title: Annotated[str, Form()] = "",
+                 volumes: Annotated[bool, Form()] = False):
+    """WACZ archives and e-books (each one a novel) and saved pages (chapters for `novel`,
+    or for a new novel), in one upload. E-books become volumes of `novel` when it is a
+    folder of volumes, or, with `volumes`, of one new novel."""
     archives = [f for f in files if (f.filename or "").lower().endswith(ARCHIVE_SUFFIXES)]
     pages = [f for f in files if is_saved_page(f.filename or "")]
     others = [f.filename for f in files if f not in archives and f not in pages]
@@ -201,13 +215,33 @@ async def upload(session: SessionDep, files: list[UploadFile],
     if archives and not settings.allow_uploads:
         return flash_redirect("/", "Uploading archives is disabled", error=True)
     target = None
-    if pages and novel != "new":
+    if novel != "new":
         try:
             target = get_novel(session, int(novel))
         except (ValueError, HTTPException):
             return flash_redirect("/", "Unknown novel", error=True)
 
     messages, errors, touched = [], [], []
+    books = [f for f in archives if (f.filename or "").lower().endswith(".epub")]
+    folder = None
+    if books and target is not None and has_archive(target) and target.wacz_path.endswith("/"):
+        folder = settings.library_dir / target.wacz_path
+    elif books and target is None and volumes:
+        folder = settings.library_dir / UPLOADS_DIR / _volumes_folder_name(books, title)
+    if folder is not None:
+        archives = [f for f in archives if f not in books]
+        for f in books:
+            await _save_upload(folder, f)
+        imported = await run_in_threadpool(import_wacz, session, folder)
+        touched.append(imported.id)
+        if imported.import_error:
+            errors.append(imported.import_error)
+        else:
+            n = len(books)
+            messages.append(f"Added {n} volume{'s' if n != 1 else ''} to “{imported.title}”; "
+                            f"{len(imported.chapters)} chapters in all")
+            if imported.import_warning:
+                errors.append(imported.import_warning)
     for f in archives:
         imported = await _import_uploaded_archive(session, f)
         touched.append(imported.id)
@@ -227,9 +261,17 @@ async def upload(session: SessionDep, files: list[UploadFile],
     return flash_redirect(dest, msg, error=not messages)
 
 
-async def _import_uploaded_archive(session: Session, file: UploadFile) -> Novel:
+def _volumes_folder_name(books: list[UploadFile], title: str) -> str:
+    """The folder new volumes go in: the title given, else the series their file names
+    share ("Ishura - Volume 10.epub" -> "Ishura")."""
+    names = [n for f in books if (n := volume_number("", f.filename or "")[1])]
+    name = title.strip() or min(names, key=len, default="") or Path(
+        books[0].filename or "Volumes").stem
+    return SAFE_NAME_RE.sub("_", name).strip(" .") or "Volumes"
+
+
+async def _save_upload(dest_dir: Path, file: UploadFile) -> Path:
     name = SAFE_NAME_RE.sub("_", Path(file.filename or "upload.wacz").name).strip(" .")
-    dest_dir = settings.library_dir / "uploads"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / name
     i = 1
@@ -238,6 +280,11 @@ async def _import_uploaded_archive(session: Session, file: UploadFile) -> Novel:
         i += 1
     with dest.open("wb") as out:
         await run_in_threadpool(shutil.copyfileobj, file.file, out, 1024 * 1024)
+    return dest
+
+
+async def _import_uploaded_archive(session: Session, file: UploadFile) -> Novel:
+    dest = await _save_upload(settings.library_dir / UPLOADS_DIR, file)
     return await run_in_threadpool(import_wacz, session, dest)
 
 
@@ -283,7 +330,8 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
          "hidden_count": hidden_count, "gaps": gaps,
          "total_chapters": (len(chapters) if hidden else len(chapters) + hidden_count),
          "archive_exists": has_archive(novel)
-         and (settings.library_dir / novel.wacz_path).is_file(), "missing_total": missing_count(gaps),
+         and (settings.library_dir / novel.wacz_path).is_file(),
+         "volume_folder": has_archive(novel) and novel.wacz_path.endswith("/"), "missing_total": missing_count(gaps),
          "missing_reasons": reason_counts(gaps),
          "gaps_before": gaps_before(chapters, gaps),
          "first_number": int(min(numbered)) if numbered else None,
@@ -780,7 +828,9 @@ def epub_image(session: SessionDep, book: str, path: str):
 
     from fastapi.responses import Response
 
-    novel = session.exec(select(Novel).where(Novel.wacz_path == book)).first()
+    # The novel's own file, or a volume in its folder.
+    folder = book.rsplit("/", 1)[0] + "/" if "/" in book else None
+    novel = session.exec(select(Novel).where(Novel.wacz_path.in_([book, folder]))).first()
     if novel is None or not book.lower().endswith(".epub"):
         raise HTTPException(404)
     file = settings.library_dir / book  # `book` is a novel's file, as found by the scan

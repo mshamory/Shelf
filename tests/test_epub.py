@@ -189,3 +189,93 @@ def test_upload_and_read_an_epub(client, tmp_path):  # noqa: F811
     html = client.get(f"/novel/{nid}").text
     assert html.index("Chapter 3") < html.index("Afterword")
     assert client.post(f"/novel/{nid}/reimport").status_code == 200
+
+
+def test_a_folder_of_volumes_is_one_novel(client, tmp_path):  # noqa: F811
+    from shelf.config import settings
+    from shelf.library import scan_library
+    from shelf.volumes import volume_number
+
+    assert volume_number("Ishura, Vol. 10: The Martyr Walks Alone") == (
+        10, "Ishura", "The Martyr Walks Alone")
+    assert volume_number("Perle Vol. II: A Memoir")[:2] == (2, "Perle")
+    assert volume_number("Saving 80,000 Gold for my Retirement 9")[0] == 9
+    assert volume_number("Untitled", "Series - Volume 08 [Club].epub")[:2] == (8, "Series")
+
+    def volume(v, first, title=None):
+        docs = {f"c{n}.xhtml": f'<h1>Chapter {n}</h1><img src="images/cover.png"/>{text(n)}'
+                for n in (first, first + 1)}
+        toc = [(f"Chapter {n}", f"c{n}.xhtml") for n in (first, first + 1)]
+        return make_epub(series / f"Long Road - Volume {v:02d}.epub", docs, toc,
+                         title=title or f"The Long Road, Vol. {v}: Part {v}")
+
+    series = settings.library_dir / "Light Novels" / "The Long Road"
+    series.mkdir(parents=True)
+    volume(2, 3)
+    volume(10, 5, title="The Long Road Volume X")  # sorts after 2, not before
+    volume(1, 1)
+    make_epub(settings.library_dir / "Other Book.epub", {"c.xhtml": f"<h1>Chapter 1</h1>{text(1)}"},
+              None, title="Other Book")
+    scan_library()
+    novels = {n["title"]: n["id"] for n in client.get("/api/novels").json()["novels"]}
+    assert set(novels) == {"The Long Road", "Other Book"}
+    nid = novels["The Long Road"]
+    html = client.get(f"/novel/{nid}").text
+    assert "Light Novels/The Long Road/" in html and "Add volumes" in html
+    order = [html.index(s) for s in ("Volume 1: Part 1", "Volume 2: Part 2", "Volume 10")]
+    assert order == sorted(order)
+    assert all(html.count(f"Chapter {n}") for n in range(1, 7))
+
+    # Images come from the volume they're in.
+    reader = client.get(f"/novel/{nid}/read").text
+    assert "book=Light+Novels%2FThe+Long+Road%2FLong+Road+-+Volume+01.epub" in reader
+    assert client.get("/epub-image", params={
+        "book": "Light Novels/The Long Road/Long Road - Volume 02.epub",
+        "path": "OEBPS/images/cover.png"}).content == PNG
+
+    # A new volume joins on the next scan; reading progress stays.
+    import re
+
+    ch = re.findall(r'href="/chapter/(\d+)"', html)[2]
+    client.post("/api/progress", json={"chapter_id": int(ch), "position": 0.5})
+    from sqlmodel import Session
+
+    from shelf.db import Chapter, Novel, get_engine
+
+    with Session(get_engine()) as session:
+        read_url = session.get(Chapter, int(ch)).url
+    volume(3, 100)
+    enc = ('<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" '
+           'xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData><enc:EncryptionMethod '
+           'Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/></enc:EncryptedData></encryption>')
+    make_epub(series / "Long Road - Volume 04.epub", {"c.xhtml": text(1)}, None,
+              extra={"META-INF/encryption.xml": enc})
+    scan_library()
+    html = client.get(f"/novel/{nid}").text
+    assert "Chapter 100" in html and "Volume 3: Part 3" in html
+    assert "Not imported: Long Road - Volume 04.epub" in html and "DRM" in html
+    with Session(get_engine()) as session:
+        novel = session.get(Novel, nid)
+        assert session.get(Chapter, novel.last_chapter_id).url == read_url
+        assert novel.last_position == 0.5
+
+
+def test_upload_volumes(client, tmp_path):  # noqa: F811
+    def book(v, first):
+        docs = {f"c{n}.xhtml": f"<h1>Chapter {n}</h1>{text(n)}" for n in (first, first + 1)}
+        return make_epub(tmp_path / f"Long Road - Volume {v}.epub", docs, None,
+                         title=f"The Long Road Vol. {v}")
+
+    files = [("files", (p.name, p.read_bytes())) for p in (book(2, 3), book(1, 1))]
+    r = client.post("/upload", files=files, data={"novel": "new", "volumes": "true"})
+    assert "Added 2 volumes to “The Long Road”; 4 chapters in all" in r.text
+    assert "uploads/Long Road/" in r.text
+    nid = int(r.url.path.rsplit("/", 1)[1])
+    p = book(3, 5)
+    r = client.post("/upload", files=[("files", (p.name, p.read_bytes()))],
+                    data={"novel": str(nid)})
+    assert "Added 1 volume to “The Long Road”; 6 chapters in all" in r.text
+    assert r.text.index("Volume 1") < r.text.index("Volume 2") < r.text.index("Volume 3")
+    # Without the box, each e-book is its own novel.
+    r = client.post("/upload", files=[("files", (p.name, p.read_bytes()))] * 2)
+    assert len(client.get("/api/novels").json()["novels"]) == 3

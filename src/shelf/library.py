@@ -77,6 +77,7 @@ class ParsedArchive:
     # Chapter numbers seen in the archive without readable text -> reason (see xhr.py).
     unreadable: dict[int, str] = field(default_factory=dict)
     metadata_source: str = "wacz"  # "wacz": a NovelUpdates page in it; "epub": the book's own
+    warnings: list[str] = field(default_factory=list)  # parts left out (a volume with DRM)
 
 
 ARCHIVE_SUFFIXES = (".wacz", ".epub")
@@ -84,11 +85,37 @@ ARCHIVE_SUFFIXES = (".wacz", ".epub")
 
 def library_rel(path: Path) -> str:
     """A file's path in the library folder, as listed there: a file linked in from
-    elsewhere (a symlink) keeps the name it has in the library."""
+    elsewhere (a symlink) keeps the name it has in the library. A folder of volumes ends
+    in "/"."""
     try:
-        return str(path.relative_to(settings.library_dir))
+        rel = path.relative_to(settings.library_dir)
     except ValueError:
-        return str(path.resolve().relative_to(settings.library_dir.resolve()))
+        rel = path.resolve().relative_to(settings.library_dir.resolve())
+    return f"{rel}/" if path.is_dir() else str(rel)
+
+
+def library_items(files: list[Path]) -> list[Path]:
+    """What the scan imports: each WACZ and loose EPUB, and each folder of EPUB volumes."""
+    from .volumes import is_volume_folder
+
+    items: dict[Path, None] = {}
+    for p in files:
+        if p.suffix.lower() == ".epub" and is_volume_folder(Path(library_rel(p)).parent):
+            items[p.parent] = None
+        else:
+            items[p] = None
+    return list(items)
+
+
+def _signature(path: Path) -> tuple[int, float]:
+    """Size and modification time; for a folder of volumes, all its books' together, and
+    the folder's own time (a volume renamed, added or removed)."""
+    if not path.is_dir():
+        stat = path.stat()
+        return stat.st_size, stat.st_mtime
+    stats = [p.stat() for p in path.iterdir() if p.suffix.lower() == ".epub" and p.is_file()]
+    return (sum(s.st_size for s in stats),
+            max([path.stat().st_mtime] + [s.st_mtime for s in stats]))
 
 
 def parse_book(path: Path) -> ParsedArchive:
@@ -671,25 +698,32 @@ def apply_metadata(
 def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
     """Create or refresh the Novel for a WACZ file. Returns the novel."""
     rel = library_rel(path)
-    stat = path.stat()
+    size, mtime = _signature(path)
     novel = session.exec(select(Novel).where(Novel.wacz_path == rel)).first()
     if (
         novel
         and not force
-        and novel.wacz_size == stat.st_size
-        and novel.wacz_mtime == stat.st_mtime
+        and novel.wacz_size == size
+        and novel.wacz_mtime == mtime
         and not novel.import_error
     ):
         return novel
 
     if novel is None:
-        novel = Novel(wacz_path=rel, title=path.stem)
+        novel = Novel(wacz_path=rel, title=path.name if path.is_dir() else path.stem)
         session.add(novel)
         session.flush()
 
-    novel.wacz_size, novel.wacz_mtime = stat.st_size, stat.st_mtime
+    novel.wacz_size, novel.wacz_mtime = size, mtime
     try:
-        parsed = parse_book(path) if path.suffix.lower() == ".epub" else parse_wacz(path)
+        if path.is_dir():
+            from .volumes import parse_volumes
+
+            parsed = parse_volumes(path, rel)
+        elif path.suffix.lower() == ".epub":
+            parsed = parse_book(path)
+        else:
+            parsed = parse_wacz(path)
     except Exception as e:  # corrupt zip, unreadable WARC, ...
         log.exception("Failed to import %s", path)
         novel.import_error = f"{type(e).__name__}: {e}"
@@ -697,6 +731,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
         return novel
 
     novel.import_error = None if parsed.chapters else "No chapters found in this archive"
+    novel.import_warning = "; ".join(parsed.warnings) or None
     novel.archive_title = parsed.archive_title
     if not novel.metadata_source:
         novel.title = parsed.archive_title or path.stem.replace("_", " ").replace("-", " ")
@@ -873,8 +908,8 @@ def scan_library(force: bool = False) -> None:
         except FileNotFoundError:
             outdated = True
         force = force or outdated
-        files = sorted(p for p in settings.library_dir.rglob("*")
-                       if p.suffix.lower() in ARCHIVE_SUFFIXES and p.is_file())
+        files = library_items(sorted(p for p in settings.library_dir.rglob("*")
+                                     if p.suffix.lower() in ARCHIVE_SUFFIXES and p.is_file()))
         scan_status.running, scan_status.done, scan_status.total = True, 0, len(files)
         scan_status.errors = []
         with Session(get_engine()) as session:

@@ -29,7 +29,7 @@
       {% if novel.original_publisher %}<dt>Original publisher</dt><dd>{{ novel.original_publisher|join(', ') }}</dd>{% endif %}
       {% if novel.english_publisher %}<dt>English publisher</dt><dd>{{ novel.english_publisher|join(', ') }}</dd>{% endif %}
       {% if novel.artists %}<dt>Artists</dt><dd>{{ novel.artists|join(', ') }}</dd>{% endif %}
-      {% if has_archive(novel) %}<dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
+      {% if volume_folder %}<dt>Volumes</dt><dd>E-books in <code>{{ novel.wacz_path }}</code></dd>{% elif has_archive(novel) %}<dt>Archive</dt><dd><code>{{ novel.wacz_path }}</code></dd>
       {% else %}<dt>Source</dt><dd>Pages sent from the browser</dd>{% endif %}
       {% if novel.metadata_source %}<dt>Metadata</dt><dd>{{ {'wacz': 'NovelUpdates page in archive', 'epub': 'From the e-book', 'upload': 'Uploaded NovelUpdates page', 'fetch': 'Fetched from NovelUpdates', 'manual': 'Edited manually'}[novel.metadata_source] }}</dd>{% endif %}
     </dl>
@@ -38,6 +38,7 @@
       <p class="chips">{% for g in novel.genres %}<a class="chip" href="/?q={{ g|urlencode }}">{{ g }}</a>{% endfor %}</p>
     {% endif %}
     {% if novel.import_error %}<p class="flash flash-error">{{ novel.import_error }}</p>{% endif %}
+    {% if novel.import_warning %}<p class="flash flash-error">{{ novel.import_warning }}</p>{% endif %}
   </div>
 </section>
 
@@ -119,6 +120,21 @@
           <button type="submit" class="small">Add chapters</button>
         </form>
       </details>
+      {% if volume_folder and settings.allow_uploads %}
+      <details class="dropdown upload">
+        <summary class="outline secondary small" role="button">Add volumes</summary>
+        <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form"
+              onsubmit="this.querySelector('button').setAttribute('aria-busy','true')">
+          <input type="hidden" name="novel" value="{{ novel.id }}">
+          <label>E-books (.epub)
+            <input type="file" name="files" multiple required accept=".epub,application/epub+zip">
+          </label>
+          <small class="muted">Saved into <code>{{ novel.wacz_path }}</code> with the other volumes, each
+            its own section, in volume order.</small>
+          <button type="submit" class="small">Add volumes</button>
+        </form>
+      </details>
+      {% endif %}
       {% if has_archive(novel) %}<form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>{% endif %}
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
     </div>

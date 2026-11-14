@@ -195,6 +195,31 @@ become the novel's metadata, until you add NovelUpdates metadata or edit it.
 - Images stay in the book and are shown from it.
 - Books with DRM are refused: Shelf doesn't decrypt protected content.
 
+### Series in volumes
+
+EPUBs together in a folder of the library are volumes of one novel, each volume its own
+section ("Volume 3", or "Volume 10: The Martyr Walks Alone" when volumes have their own
+subtitles). Only EPUBs directly in the library folder, or in `uploads/`, are novels of their own.
+
+```
+library/
+  Ishura/
+    Ishura - Volume 01.epub
+    Ishura - Volume 02.epub
+  A Standalone Book.epub
+```
+
+- Volumes are ordered by the volume number in their title or file name ("Vol. 2",
+  "Volume 08", "Vol. II", a trailing "9"), else by file name.
+- The novel is named for the series the volume titles share, else for the folder. Its
+  description and cover come from the first volume.
+- Adding, removing or replacing a volume re-imports the novel on the next scan; reading
+  progress, hidden chapters and your edits stay.
+- A volume that can't be read (DRM, a broken file) is left out and named on the novel's
+  page; the other volumes are imported.
+- To upload, tick **The e-books are volumes of one novel** in **Upload** (they're saved in a
+  folder under `uploads/`), or use **Add volumes** on a novel that is a folder of volumes.
+
 ## Development
 
 ```sh
