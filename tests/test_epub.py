@@ -279,3 +279,66 @@ def test_upload_volumes(client, tmp_path):  # noqa: F811
     # Without the box, each e-book is its own novel.
     r = client.post("/upload", files=[("files", (p.name, p.read_bytes()))] * 2)
     assert len(client.get("/api/novels").json()["novels"]) == 3
+
+
+def test_running_numbers_before_titles(tmp_path):
+    # The book's own count before each title wins over a drifting one inside it; the
+    # heading split in two ("14" / "Name") isn't repeated in the text.
+    titles = {1: "Magic Cube", 2: "Lin Ming", 3: "Peculiar Stone", 14: "Chapter 13 Inscription, Go!",
+              15: "Increasing Strength"}
+    docs = {f"c{n}.xhtml": f"<div><div>{n}</div><div>{t}</div></div>{text(n)}"
+            for n, t in titles.items()}
+    docs["d1.xhtml"] = f"<h1>D001 – Prologue</h1>{text(0)}"  # a digest version's chapter
+    toc = [("D001 – Prologue", "d1.xhtml")] + [(f"{n}. {t}", f"c{n}.xhtml")
+                                               for n, t in titles.items()]
+    docs = {"d1.xhtml": docs.pop("d1.xhtml"), **docs}
+    book = parse_epub(make_epub(tmp_path / "r.epub", docs, toc))
+    assert [(c.number, c.title) for c in book.chapters] == [
+        (None, "D001 – Prologue"), (1, "1. Magic Cube"), (2, "2. Lin Ming"),
+        (3, "3. Peculiar Stone"), (14, "14. Chapter 13 Inscription, Go!"),
+        (15, "15. Increasing Strength")]
+    assert all(c.season is None for c in book.chapters)
+    assert book.chapters[1].html.startswith(f"<p>{PARA[3:13]}")
+
+
+def test_volume_title_pages(tmp_path):
+    # The contents list volumes only, each at its title page; the chapters follow.
+    docs, toc = {}, []
+    for b, name in ((1, "The Ring"), (2, "Growing Up")):
+        docs[f"b{b}.xhtml"] = f"<h1>Book {b} – {name}</h1>"
+        docs[f"b{b}c1.xhtml"] = f"<h1>Chapter 1 – Start {b}</h1>{text(1)}"
+        docs[f"b{b}c2.xhtml"] = f"<h1>Chapter 2 – Next {b}</h1>{text(2)}"
+        toc.append((f"Book {b} – {name}", f"b{b}.xhtml"))  # chapters aren't listed
+    book = parse_epub(make_epub(tmp_path / "t.epub", docs, toc))
+    assert [(c.season_label, c.number, c.title) for c in book.chapters] == [
+        ("Book 1 – The Ring", 1, "Chapter 1 – Start 1"), ("Book 1 – The Ring", 2, "Chapter 2 – Next 1"),
+        ("Book 2 – Growing Up", 1, "Chapter 1 – Start 2"),
+        ("Book 2 – Growing Up", 2, "Chapter 2 – Next 2")]
+    # "B1C2" is book 1, chapter 2.
+    docs = {f"c{n}.xhtml": f"<h1>B1C{n}: Part {n}</h1>{text(n)}" for n in (1, 2, 3)}
+    book = parse_epub(make_epub(tmp_path / "bc.epub", docs, None))
+    assert [c.number for c in book.chapters] == [1, 2, 3]
+
+
+def test_numbering_that_starts_over(tmp_path):
+    # Volume by volume, with nothing in the contents to tell them apart but file names.
+    docs = {f"Volume_{v}_-_Chapter_{n}.xhtml": f"<h1>Chapter {n}: V{v}</h1>{text(n)}"
+            for v in (1, 2) for n in range(1, 6)}
+    toc = [(f"Chapter {n}: V{v}", f"Volume_{v}_-_Chapter_{n}.xhtml")
+           for v in (1, 2) for n in range(1, 6)]
+    book = parse_epub(make_epub(tmp_path / "s.epub", docs, toc))
+    assert [(c.season, c.season_label) for c in book.chapters] == (
+        [(1, "Volume 1")] * 5 + [(2, "Volume 2")] * 5)
+    renamed = {f"c{i}.xhtml": body for i, body in enumerate(docs.values())}
+    book = parse_epub(make_epub(tmp_path / "p.epub", renamed,
+                                [(t, f"c{i}.xhtml") for i, (t, _) in enumerate(toc)]))
+    assert {c.season_label for c in book.chapters} == {"Part 1", "Part 2"}
+
+
+def test_a_page_listing_the_chapters_is_not_one(tmp_path):
+    listing = "<h1>The Long Road</h1>" + "".join(f"<p>Chapter {n} - Name {n}</p>"
+                                                for n in range(1, 40))
+    docs = {"title.xhtml": listing, **{f"c{n}.xhtml": f"<h1>Chapter {n}</h1>{text(n)}"
+                                       for n in (1, 2)}}
+    book = parse_epub(make_epub(tmp_path / "l.epub", docs, None))
+    assert [c.title for c in book.chapters] == ["Chapter 1", "Chapter 2"]

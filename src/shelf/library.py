@@ -64,7 +64,7 @@ log = logging.getLogger("shelf.library")
 HTML_MIMES = {"text/html", "application/xhtml+xml", ""}
 
 # Bump when extraction changes so existing archives are re-imported on the next scan.
-EXTRACTOR_VERSION = "14"
+EXTRACTOR_VERSION = "15"
 
 
 @dataclass

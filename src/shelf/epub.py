@@ -51,6 +51,16 @@ MIN_NUMBERED_CHARS = 200
 URL_SCHEME = "epub:"
 CHAPTERISH_RE = re.compile(r"\b(?:chapter|episode|prologue|epilogue|interlude|act|part|"
                            r"side story|extra|afterword)\b|^\s*ch\.", re.I)
+# A title naming a volume, book or part rather than a chapter: "Book 2 – Growing Up".
+VOLUME_TITLE_RE = re.compile(r"^\s*(?:book|volume|vol\.|part|arc)\s*[\divxlc]+\b", re.I)
+
+
+def _names_volume(title: str) -> bool:
+    """ "Book 2 – Growing Up", not "Volume 6 - Chapter 32: The Sixth Investigator"."""
+    return bool(VOLUME_TITLE_RE.match(title)) and not re.search(
+        r"\b(?:chapter|chap|ch|episode|ep)\b", title, re.I)
+
+
 FRONT_RE = re.compile(r"^\s*(?:title page|cover|copyright|(?:table of )?contents|untitled)\b",
                       re.I)
 # Pages that aren't part of the story, whatever their length.
@@ -301,12 +311,22 @@ def _squash(text: str) -> str:
 
 def _drop_title_heading(content: str, title: str) -> str:
     """The reader shows the title above the text: drop the same heading at the start."""
-    m = re.match(r"\s*<(h[1-6]|p)\b[^>]*>(.*?)</\1>", content, re.S)
-    if m:
-        text = _squash(html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(2))))
-        if text and text == _squash(title):
-            return content[m.end():]
+    want, text, end = _squash(title), "", 0
+    # The heading can be split in two: the number, then the name ("284" / "Three People").
+    for _ in range(2):
+        m = BLOCK_RE.match(content, end)
+        if not m:
+            break
+        text += _squash(html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(2))))
+        end = m.end()
+        if text and text == want:
+            return content[end:]
+        if not want.startswith(text):
+            break
     return content
+
+
+BLOCK_RE = re.compile(r"\s*<(h[1-6]|p)\b[^>]*>(.*?)</\1>", re.S)
 
 
 def _metadata(opf: ET.Element) -> NovelMetadata:
@@ -407,6 +427,7 @@ class _Draft:
     group: str
     parts: list[str] = field(default_factory=list)
     from_toc: bool = False
+    listed_as: str = ""  # the contents' name for it, when its own heading was used instead
 
 
 def _chapters(z, spine: list[str], toc: list[TocEntry], nav: str | None,
@@ -414,6 +435,7 @@ def _chapters(z, spine: list[str], toc: list[TocEntry], nav: str | None,
     """The book's chapters, each with the contents group it's under ("Volume 2"), and the
     titles of documents too short to be chapters."""
     by_doc: dict[str, list[TocEntry]] = {}
+    group_names = {e.group for e in toc if e.group}
     for e in toc:
         entries = by_doc.setdefault(e.doc, [])
         # A volume and its first chapter often point at the same place: keep the chapter.
@@ -440,18 +462,31 @@ def _chapters(z, spine: list[str], toc: list[TocEntry], nav: str | None,
             # starts with its first scene's heading, "1").
             if drafts and (not heading or heading.casefold() == drafts[-1].title.casefold()
                            or text_length("".join(drafts[-1].parts)) < MIN_CHAPTER_CHARS):
-                drafts[-1].parts.append(body)
+                prev = drafts[-1]
+                # A volume's or arc's title page ("Book 2 – Growing Up"), then its first
+                # chapter, which says what it is ("Chapter 1 – Magical Beast").
+                if (heading and prev.from_toc and _chapter_heading(heading)
+                        and text_length("".join(prev.parts)) < MIN_CHAPTER_CHARS
+                        and (not _numbered(prev.title) or _names_volume(prev.title))):
+                    if prev.title in group_names or _names_volume(prev.title):
+                        prev.group = prev.group or prev.title
+                    prev.title, prev.listed_as = heading, prev.title
+                    prev.parts = []
+                prev.parts.append(body)
             else:
                 # Front matter, or a chapter the contents leave out (some list a whole
                 # volume as one entry; each file then starts with its chapter's heading).
                 group = drafts[-1].group if drafts else ""
                 prev = drafts[-1] if drafts else None
-                if heading and prev is not None and prev.from_toc:
+                listed = prev.listed_as or prev.title if prev is not None else ""
+                if heading and prev is not None and prev.from_toc and not (
+                        _numbered(listed) and not _names_volume(listed)):
                     # The entry before was a volume, not a chapter: its first file has
-                    # its own heading too.
+                    # its own heading too. (After a chapter, this is one the contents
+                    # leave out.)
                     own = _leading_heading("".join(prev.parts))
                     if own:
-                        prev.group = group = prev.group or prev.title
+                        prev.group = group = prev.group or prev.listed_as or prev.title
                         prev.title = own
                     prev.from_toc = False
                 drafts.append(_Draft(heading or _heading(markup), doc, "", group, [body]))
@@ -468,8 +503,16 @@ def _chapters(z, spine: list[str], toc: list[TocEntry], nav: str | None,
         for i, e in enumerate(entries):
             # An entry without an anchor starts at the top of the document.
             piece = next(rest, "") if e.fragment else (before if i == 0 else "")
-            title = e.title or _heading(piece or markup)
-            drafts.append(_Draft(title, doc, e.fragment, e.group, [piece], from_toc=True))
+            title, group = e.title or _heading(piece or markup), e.group
+            # A volume or arc listed by its name ("Book 2 – Growing Up") pointing at its
+            # first chapter, which says what it is ("Chapter 1 – Magical Beast").
+            own = _leading_heading(piece) if (
+                title in group_names or _names_volume(title)) else ""
+            if own and _chapter_heading(own):
+                if title in group_names:
+                    group = group or title
+                title = own
+            drafts.append(_Draft(title, doc, e.fragment, group, [piece], from_toc=True))
 
     pieces = []
     for d in drafts:
@@ -495,11 +538,22 @@ def _chapters(z, spine: list[str], toc: list[TocEntry], nav: str | None,
                               text_length=text_length(content), source="epub")
         classify(ch, "")
         enough = MIN_NUMBERED_CHARS if ch.number is not None else MIN_CHAPTER_CHARS
-        if ch.text_length < enough or CONTENTS_RE.search(title):
+        if ch.text_length < enough or CONTENTS_RE.search(title) or _lists_chapters(content):
             skipped.append(title)
         else:
             kept.append((ch, group))
     return kept, skipped
+
+
+LISTED_CHAPTER_RE = re.compile(r"\bchapter\s*\d+", re.I)
+
+
+def _lists_chapters(content: str) -> bool:
+    """A page that is a list of the chapters (a title page with the whole contents on it),
+    not a chapter."""
+    text = re.sub(r"<[^>]+>", " ", content)
+    labels = len(LISTED_CHAPTER_RE.findall(text))
+    return labels >= 20 and len(text) < 80 * labels
 
 
 BARE_NUMBER_RE = re.compile(r"\s*[<\[(]?\s*(\d{1,4})\s*[>\])]?\s*")
@@ -513,17 +567,53 @@ NUMBER_WORDS = {w: i for i, w in enumerate(_UNITS)} | {
 WORD_CHAPTER_RE = re.compile(r"^\s*chapter\s+([a-z]+(?:[\s-][a-z]+)?)\b", re.I)
 
 
+BOOK_CHAPTER_RE = re.compile(r"^\s*B(\d{1,3})\s*C(\d{1,4})\b", re.I)  # "B1C2: Resolution"
+
+
 def _book_number(title: str) -> int | None:
     """Chapter numbers books write their own way: "1", "<1>", "Chapter One",
-    "Chapter Twenty-Three"."""
+    "Chapter Twenty-Three", "B1C2" (book 1, chapter 2)."""
     if m := BARE_NUMBER_RE.fullmatch(title):
         return int(m.group(1))
+    if m := BOOK_CHAPTER_RE.match(title):
+        return int(m.group(2))
     if m := WORD_CHAPTER_RE.match(title):
         words = re.split(r"[\s-]+", m.group(1).casefold())
         for n in (2, 1):  # "Twenty-Three", else "One" (of "Chapter One The Beginning")
             if len(words) >= n and (v := NUMBER_WORDS.get("-".join(words[:n]))) is not None:
                 return v
     return None
+
+
+# A book's own running number before each title: "1. Scholar Meng Hao", "001 – Prologue".
+LIST_NUMBER_RE = re.compile(r"^\s*(\d{1,4})\s*(?:[.:)]|\s[–—-])\s*\S")
+
+
+def _numbered(title: str) -> bool:
+    return chapter_number(title) is not None or _book_number(title) is not None
+
+
+def _chapter_heading(heading: str) -> bool:
+    """A heading naming a chapter ("Chapter 1 – Magical Beast", "B1C1: Qin Yu"), not a
+    scene ("1") or a volume."""
+    return _numbered(heading) and not BARE_NUMBER_RE.fullmatch(heading) and not (
+        _names_volume(heading))
+
+
+def _list_numbers(chapters: list[ExtractedChapter]) -> bool:
+    """When most titles start with a running number, that is the chapter's number, even
+    where the rest of the title names another ("1313. Chapter 1307B": the translator's
+    count, which drifts from the book's)."""
+    found = [(c, int(m.group(1))) for c in chapters if (m := LIST_NUMBER_RE.match(c.title))]
+    if len(found) < 3 or len(found) < 0.8 * len(chapters):
+        return False
+    numbers = [n for _c, n in found]
+    rising = sum(b > a for a, b in zip(numbers, numbers[1:], strict=False))
+    if rising < 0.9 * (len(numbers) - 1):
+        return False
+    for c, n in found:
+        c.number, c.number_end, c.season, c.season_word = float(n), None, None, ""
+    return True
 
 
 def _number(chapters: list[ExtractedChapter], groups: list[str]) -> None:
@@ -533,6 +623,9 @@ def _number(chapters: list[ExtractedChapter], groups: list[str]) -> None:
     become sections."""
     from .library import _numbers_from_title_pattern  # library imports this module
 
+    # A chapter with entries for its own headings nested under it is no group of chapters.
+    groups = ["" if g and _numbered(g) and not _names_volume(g) else g for g in groups]
+
     for c in chapters:
         if c.season == SIDE_SEASON:
             c.season, c.season_word, c.number, c.number_end = None, "", None, None
@@ -540,16 +633,58 @@ def _number(chapters: list[ExtractedChapter], groups: list[str]) -> None:
             c.number = float(n)
             if BARE_NUMBER_RE.fullmatch(c.title):
                 c.title = f"Chapter {n}"
-    _numbers_from_title_pattern(chapters)
-    if assign_seasons(chapters):
+    # With the book's own running numbers, other titles are not chapters of that count
+    # ("D001 – Prologue" of a digest version beside "001 – Prologue").
+    if not _list_numbers(chapters):
+        _numbers_from_title_pattern(chapters)
+    if assign_seasons(chapters) and not _starts_over(chapters):
         return  # the titles say which part each chapter is in ("Volume 2 Chapter 1")
     numbers = [c.number for c in chapters if c.number is not None]
     restarts = any(b < a for a, b in zip(numbers, numbers[1:], strict=False))
     if not restarts or not any(groups):
         for c in chapters:
             c.season, c.season_label = None, ""
+        _sections_at_restarts(chapters)
         return
     order: dict[str, int] = {}
     for c, g in zip(chapters, groups, strict=True):  # outside every group: no section
         c.season = order.setdefault(g, len(order) + 1) if g else None
         c.season_label = g
+
+
+URL_VOLUME_RE = re.compile(r"(?<![a-z])vol(?:ume)?[ _.-]*(\d{1,3})(?!\d)", re.I)
+
+
+def _starts_over(chapters: list[ExtractedChapter]) -> list[int]:
+    """Where numbering starts again at chapter 1 within a section."""
+    found, last = [], {}
+    for i, c in enumerate(chapters):
+        if c.number is None:
+            continue
+        key = c.season or 0
+        if c.number <= 1 and last.get(key, 0) >= 5:
+            found.append(i)
+        last[key] = c.number_end or c.number
+    return found
+
+
+def _sections_at_restarts(chapters: list[ExtractedChapter]) -> None:
+    """A book whose numbering starts again (volume by volume) with nothing else to tell
+    its parts apart: a section from each restart, named for the volume its files are
+    named for ("…/Volume_4_-_Chapter_1.xhtml"), else "Part 2"."""
+    starts = _starts_over(chapters)
+    if not starts:
+        return
+    first = next(i for i, c in enumerate(chapters) if c.number is not None)
+    bounds = [first, *starts, len(chapters)]
+    parts = [chapters[a:b] for a, b in zip(bounds, bounds[1:], strict=False)]
+    volumes = []
+    for part in parts:
+        m = next((m for c in part if c.number is not None
+                  and (m := URL_VOLUME_RE.search(c.url))), None)
+        volumes.append(int(m.group(1)) if m else None)
+    named = None not in volumes and len(set(volumes)) == len(volumes)
+    for k, part in enumerate(parts, 1):
+        label = f"Volume {volumes[k - 1]}" if named else f"Part {k}"
+        for c in part:
+            c.season, c.season_label = k, label
