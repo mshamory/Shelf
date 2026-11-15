@@ -1044,6 +1044,21 @@ IMAGE_HEADERS = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Optio
                  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"}
 
 
+@app.get("/novel/{novel_id}/export.epub")
+def export_novel(session: SessionDep, novel_id: int):
+    """The novel as an EPUB e-book, as Shelf shows it."""
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    from .export import export_filename, export_to_temp
+
+    novel = get_novel(session, novel_id)
+    path = export_to_temp(session, novel, trim_rules(session, novel_id))
+    return FileResponse(path, media_type="application/epub+zip",
+                        filename=export_filename(novel),
+                        background=BackgroundTask(path.unlink, missing_ok=True))
+
+
 @app.post("/novel/{novel_id}/images/fetch")
 def images_fetch(session: SessionDep, novel_id: int):
     """Download the images of the novel's chapters that Shelf has no copy of."""

@@ -200,6 +200,15 @@ away:
 Chapters keep their images' original addresses, so an image saved later also shows in
 chapters captured before.
 
+## Exporting as an EPUB
+
+**Download EPUB** on a novel's page makes an e-book of the novel as Shelf shows it: the
+chapters in the list (hidden ones left out), with their edited titles and the novel's trim
+rules applied, a page for each part or volume with its chapters under it in the contents,
+and the cover, title, authors, genres and description. Images Shelf has a copy of (from the
+archive, the e-book or the browser extension) go inside the book; others are left out, as
+in the reader.
+
 ## How an EPUB becomes a novel
 
 Each `.epub` file in the library folder (or uploaded with **Upload**) is one novel, like a

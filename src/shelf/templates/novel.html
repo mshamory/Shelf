@@ -15,6 +15,10 @@
           {% if last %}Continue · {{ last.title }}{% else %}Start reading{% endif %}
         </a>
       {% endif %}
+      {% if chapters %}
+        <a role="button" class="outline" href="/novel/{{ novel.id }}/export.epub" download
+           title="The shown chapters as an e-book, trimmed as you read them, with the images Shelf has">Download EPUB</a>
+      {% endif %}
       {% if novel.nu_url %}
         <a role="button" class="outline" href="{{ novel.nu_url }}" target="_blank" rel="noopener noreferrer">NovelUpdates ↗</a>
       {% endif %}
