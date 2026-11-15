@@ -2,6 +2,7 @@
 browser extension sent the chapter, ones in the novel's WACZ archive, or ones in its
 e-book. Site decoration (logos, donation buttons, the same picture in every chapter) is
 left out, and so are images Shelf doesn't have: their addresses usually stop working.
+"Save missing images" on a novel's page downloads the ones still online.
 
 Chapters keep their images' original addresses; they are resolved when shown, so an
 image stored later shows up in chapters captured before."""
@@ -10,9 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import html as html_lib
+import logging
 import re
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -221,3 +224,153 @@ def wanted_images(session: Session, novel: Novel, html: str) -> list[str]:
                 and archived_image(novel, src) is None):
             wanted.append(src)
     return wanted
+
+
+# -- downloading images Shelf has no copy of ---------------------------------
+#
+# A plain HTTP client that says who it is. A host that refuses (403, 429, a challenge page
+# instead of an image) is left alone for the rest of the run, never worked around.
+
+FETCH_TIMEOUT = 20.0
+MAX_REDIRECTS = 5
+REFUSED = (401, 403, 429, 503)
+
+
+class Refused(Exception):
+    """The host turned the request away."""
+
+
+def _public(host: str) -> bool:
+    """Whether every address the host has is on the public internet (chapters are
+    untrusted: an image address must not reach this computer or its network)."""
+    import ipaddress
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return False
+    return bool(infos) and all(ipaddress.ip_address(i[4][0].split("%")[0]).is_global
+                               for i in infos)
+
+
+def _client():
+    import httpx
+
+    from .novelupdates import USER_AGENT
+
+    return httpx.Client(timeout=FETCH_TIMEOUT, follow_redirects=False,
+                        headers={"User-Agent": USER_AGENT, "Accept": "image/*"})
+
+
+def download_image(client, url: str, referer: str = "") -> bytes | None:
+    """The image at `url`, or None. Raises Refused when the host turns Shelf away."""
+    import httpx
+
+    for _ in range(MAX_REDIRECTS + 1):
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname or not _public(
+                parts.hostname):
+            return None
+        headers = {"Referer": referer} if referer.startswith(("http://", "https://")) else {}
+        try:
+            with client.stream("GET", url, headers=headers) as r:
+                if r.is_redirect and (loc := r.headers.get("location")):
+                    url = str(httpx.URL(url).join(loc))
+                    continue
+                if r.status_code in REFUSED:
+                    raise Refused(f"HTTP {r.status_code}")
+                if r.status_code != 200:
+                    return None
+                data = bytearray()
+                for chunk in r.iter_bytes():
+                    data += chunk
+                    if len(data) > MAX_IMAGE_BYTES:
+                        return None
+        except httpx.HTTPError:
+            return None
+        if _sniff(bytes(data)) is None:
+            if b"<html" in data[:2048].lower():  # a challenge or error page, not the image
+                raise Refused("a web page instead of the image")
+            return None
+        return bytes(data)
+    return None
+
+
+def missing_images(session: Session, novel: Novel) -> list[tuple[str, str]]:
+    """(image address, chapter address) for every story image in the novel's shown
+    chapters that Shelf has no copy of."""
+    found: dict[str, str] = {}
+    for html, page in session.exec(select(Chapter.content_html, Chapter.url).where(
+            Chapter.novel_id == novel.id, Chapter.hidden == False,  # noqa: E712
+            func.instr(Chapter.content_html, "<img") > 0).order_by(Chapter.position)):
+        for src in wanted_images(session, novel, html):
+            found.setdefault(src, page)
+    return list(found.items())
+
+
+@dataclass
+class ImageFetch:
+    running: bool = False
+    total: int = 0
+    done: int = 0
+    saved: int = 0
+    failed: int = 0
+    refused: dict[str, str] = field(default_factory=dict)  # host -> why
+    finished: str = ""
+
+
+_fetches: dict[int, ImageFetch] = {}
+_fetch_lock = threading.Lock()
+
+
+def fetch_status(novel_id: int) -> ImageFetch | None:
+    return _fetches.get(novel_id)
+
+
+def fetch_missing_images(novel_id: int) -> None:
+    """Download the novel's missing images, one at a time, recording progress."""
+    import time
+
+    from .db import get_engine, utcnow
+
+    status = _fetches[novel_id]
+    try:
+        with Session(get_engine()) as session:
+            novel = session.get(Novel, novel_id)
+            todo = missing_images(session, novel) if novel else []
+        status.total = len(todo)
+        with _client() as client:
+            last: dict[str, float] = {}
+            for url, page in todo:
+                host = urlsplit(url).hostname or ""
+                if host in status.refused:
+                    status.failed += 1
+                else:
+                    # A pause between requests to the same host.
+                    if (wait := last.get(host, 0) + 0.5 - time.monotonic()) > 0:
+                        time.sleep(wait)
+                    try:
+                        data = download_image(client, url, page)
+                    except Refused as e:
+                        status.refused[host], data = str(e), None
+                    last[host] = time.monotonic()
+                    if data is not None and save_image(novel_id, url, data):
+                        status.saved += 1
+                    else:
+                        status.failed += 1
+                status.done += 1
+    except Exception:
+        logging.getLogger("shelf.images").exception("Saving images of novel %s", novel_id)
+    finally:
+        status.running = False
+        status.finished = utcnow().isoformat(timespec="seconds")
+
+
+def start_image_fetch(novel_id: int) -> bool:
+    with _fetch_lock:
+        if (s := _fetches.get(novel_id)) and s.running:
+            return False
+        _fetches[novel_id] = ImageFetch(running=True)
+    threading.Thread(target=fetch_missing_images, args=(novel_id,), daemon=True).start()
+    return True

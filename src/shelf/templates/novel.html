@@ -135,10 +135,33 @@
         </form>
       </details>
       {% endif %}
+      {% if has_images and not (image_fetch and image_fetch.running) %}<form method="post" action="/novel/{{ novel.id }}/images/fetch"><button class="outline secondary small" title="Download the chapters' images that aren't in the archive or saved yet">Save missing images</button></form>{% endif %}
       {% if has_archive(novel) %}<form method="post" action="/novel/{{ novel.id }}/reimport"><button class="outline secondary small">Re-import</button></form>{% endif %}
       {% if last %}<form method="post" action="/novel/{{ novel.id }}/progress/reset"><button class="outline secondary small">Reset progress</button></form>{% endif %}
     </div>
   </header>
+  {% if image_fetch %}
+  <p id="images" class="flash{% if image_fetch.failed and not image_fetch.running %} flash-error{% endif %}">
+    {% if image_fetch.running %}
+      <span aria-busy="true">Saving images{% if image_fetch.total %}: {{ image_fetch.done }} of {{ image_fetch.total }}{% endif %}…</span>
+    {% elif not image_fetch.total %}
+      No missing images: every image in these chapters is already saved or left out as site decoration.
+    {% else %}
+      Saved {{ image_fetch.saved }} of {{ image_fetch.total }} missing image{{ 's' if image_fetch.total != 1 }}.
+      {%- if image_fetch.failed %} {{ image_fetch.failed }} couldn't be downloaded; they stay left out.{% endif %}
+      {%- for host, why in image_fetch.refused.items() %}<br><small class="muted">{{ host }} turned Shelf away ({{ why }}), so its other images weren't tried. Sending the chapter again from the browser extension can save them.</small>{% endfor %}
+    {% endif %}
+  </p>
+  {% if image_fetch.running %}
+  <script>
+    // Refresh when the download finishes.
+    const imagePoll = setInterval(async () => {
+      const s = await (await fetch("/api/novels/{{ novel.id }}/images/fetch")).json();
+      if (!s.running) { clearInterval(imagePoll); location.reload(); }
+    }, 1500);
+  </script>
+  {% endif %}
+  {% endif %}
   {% if not total_chapters %}
   <details class="delete-novel">
     <summary>Delete this novel</summary>

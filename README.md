@@ -191,6 +191,11 @@ away:
 - Site decoration is left out: the same picture in three or more chapters (an avatar, the
   covers of other novels), and logos, buttons and banners (Ko-fi, Patreon, Discord, …).
 - Other images are left out: their addresses usually stop working.
+- **Save missing images** on a novel's page downloads the left-out images that are still
+  online, one at a time, as Shelf (it doesn't pretend to be a browser). A site that refuses
+  (an error, a challenge page) isn't asked again in that run; send those chapters again
+  from the browser extension instead. Addresses on this computer or your local network are
+  never fetched.
 
 Chapters keep their images' original addresses, so an image saved later also shows in
 chapters captured before.

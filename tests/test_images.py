@@ -73,3 +73,70 @@ def test_images_in_the_archive(client, tmp_path):  # noqa: F811
     img = client.get(src.replace("&amp;", "&"))
     assert img.content == PNG and img.headers["content-type"] == "image/png"
     assert client.get(f"/novel/{nid}/archive-image", params={"url": first}).status_code == 404
+
+
+def test_saving_missing_images(client, monkeypatch):  # noqa: F811
+    import time
+
+    import httpx
+
+    from shelf import images
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        path = request.url.path
+        if request.url.host == "blocked.example":
+            return httpx.Response(403, text="<html>Just a moment…</html>")
+        if path.endswith("illustration-1.png"):
+            return httpx.Response(302, headers={"location": "/cdn/one.png"})
+        if path in ("/cdn/one.png", "/uploads/illustration-2.png"):
+            return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    monkeypatch.setattr(images, "_client", lambda: httpx.Client(
+        transport=httpx.MockTransport(handler), headers={"User-Agent": "Shelf/test"}))
+    monkeypatch.setattr(images, "_public", lambda host: True)
+    monkeypatch.setattr(images, "REPEATED_IN", 99)
+
+    nid = client.post("/api/novels", json={"title": "Night Train"}).json()["novel"]["id"]
+    blocked = '<p><img src="https://blocked.example/a.png"><img src="https://blocked.example/b.png"></p>'
+    for n in (1, 2, 3):
+        client.post(f"/api/novels/{nid}/chapters", json={
+            "url": f"https://example.com/night-train/chapter-{n}",
+            "html": page(n, extra=f'<p><img src="{ART.format(n=n)}"></p>{blocked if n == 3 else ""}{PARA}')})
+    assert "Save missing images" in client.get(f"/novel/{nid}").text
+
+    r = client.post(f"/novel/{nid}/images/fetch", follow_redirects=False)
+    assert r.status_code == 303
+    for _ in range(100):
+        if not client.get(f"/api/novels/{nid}/images/fetch").json()["running"]:
+            break
+        time.sleep(0.05)
+    s = client.get(f"/api/novels/{nid}/images/fetch").json()
+    assert (s["total"], s["saved"], s["failed"]) == (5, 2, 3)
+    assert s["refused"] == {"blocked.example": "HTTP 403"}
+    # After a refusal, the host's other images aren't asked for.
+    assert [r.url.path for r in requests if r.url.host == "blocked.example"] == ["/a.png"]
+    first = next(r for r in requests if r.url.path.endswith("illustration-1.png"))
+    assert first.headers["referer"] == "https://example.com/night-train/chapter-1"
+
+    page_html = client.get(f"/novel/{nid}").text
+    assert "Saved 2 of 5 missing images" in page_html and "blocked.example turned Shelf away" in page_html
+    chapters = re.findall(r'href="(/chapter/\d+)"', page_html)
+    assert re.search(r'<img src="/novel/\d+/image/[0-9a-f]+\.png"', client.get(chapters[0]).text)
+
+
+def test_image_addresses_on_this_computer_are_not_fetched():
+    import httpx
+
+    from shelf.images import download_image
+
+    def handler(request):
+        raise AssertionError(f"fetched {request.url}")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        for url in ("http://127.0.0.1/a.png", "http://[::1]/a.png", "http://192.168.1.2/a.png",
+                    "http://169.254.169.254/latest", "file:///etc/passwd"):
+            assert download_image(c, url) is None

@@ -46,10 +46,12 @@ from .extract import SIDE_SEASON
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
 from .images import (
     STORED_NAME_RE,
+    fetch_status,
     images_dir,
     read_archived_image,
     resolve_images,
     save_image,
+    start_image_fetch,
     wanted_images,
 )
 from .library import (
@@ -343,6 +345,10 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
          "missing_reasons": reason_counts(gaps),
          "gaps_before": gaps_before(chapters, gaps),
          "first_number": int(min(numbered)) if numbered else None,
+         "has_images": session.exec(select(Chapter.id).where(
+             Chapter.novel_id == novel_id, ~col(Chapter.url).startswith("epub:"),
+             func.instr(Chapter.content_html, "<img") > 0).limit(1)).first() is not None,
+         "image_fetch": fetch_status(novel_id),
          "seasons": novel_seasons(session, novel_id) if hidden else [],
          "versions": version_counts(session, novel_id) if hidden else {}},
     )
@@ -1036,6 +1042,20 @@ def api_add_images(session: SessionDep, novel_id: int, body: ImagesPayload):
 
 IMAGE_HEADERS = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff",
                  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"}
+
+
+@app.post("/novel/{novel_id}/images/fetch")
+def images_fetch(session: SessionDep, novel_id: int):
+    """Download the images of the novel's chapters that Shelf has no copy of."""
+    get_novel(session, novel_id)
+    start_image_fetch(novel_id)
+    return RedirectResponse(f"/novel/{novel_id}#images", status_code=303)
+
+
+@app.get("/api/novels/{novel_id}/images/fetch")
+def images_fetch_status(novel_id: int):
+    s = fetch_status(novel_id)
+    return asdict(s) if s else {"running": False}
 
 
 @app.get("/novel/{novel_id}/image/{name}")
