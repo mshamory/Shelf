@@ -57,6 +57,13 @@ the browser can be added too.
   the HTML itself). The text before each save stays in the chapter's history, where
   *Restore* undoes an edit. Re-imports and re-extraction keep edited text; only sending
   the chapter again from the browser replaces it. Trim rules still apply on top of edits.
+- **Glossary**: each novel's names, places and terms with a description, marked in the
+  reader wherever they appear; hover, tap or Tab to one to see what it is. A term matches
+  its name as a whole word and any aliases, one per line, where `/…/` is a regular
+  expression (`/Spirit Stones?/`). Select a name in the reader and press **Glossary…** to
+  add it. The reader's **Aa** settings mark every mention, only the first in each chapter,
+  or none. Exported EPUBs end with the glossary, each term's first mention in a chapter
+  linked to it.
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
   chapter search, upload of WACZ files, EPUB e-books and saved web pages from the browser,
   and hiding of non-chapter pages.

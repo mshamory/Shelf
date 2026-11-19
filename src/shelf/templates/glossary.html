@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Glossary · {{ novel.title }}{% endblock %}
+{% macro term_fields(t=none, name="") %}
+  <div class="grid">
+    <label>Term
+      <input name="term" required maxlength="200" value="{{ t.term if t else name }}" placeholder="e.g. Lin Dong">
+    </label>
+    <label>Category <small class="muted">(optional)</small>
+      <input name="category" maxlength="60" value="{{ t.category if t else '' }}" list="glossary-categories" placeholder="Character, Place, Technique…">
+    </label>
+  </div>
+  <label>Also written as <small class="muted">(one per line; <code>/…/</code> for a regular expression)</small>
+    <textarea name="aliases" rows="2" placeholder="Little Dong&#10;/Senior Brother Lin|Brother Lin/">{{ t.aliases|join('\n') if t else '' }}</textarea>
+  </label>
+  <label>Description
+    <textarea name="description" rows="3">{{ t.description if t else '' }}</textarea>
+  </label>
+  <label><input type="checkbox" name="ignore_case" value="true" {% if t and t.ignore_case %}checked{% endif %}> Ignore case</label>
+{% endmacro %}
+{% block content %}
+<nav aria-label="breadcrumb"><ul><li><a href="/novel/{{ novel.id }}">{{ novel.title }}</a></li><li>Glossary</li></ul></nav>
+<h2>Glossary <small class="muted">({{ count }} term{{ 's' if count != 1 }})</small></h2>
+<p class="muted">Terms are marked in chapters wherever they appear; hover or tap one to see its
+  description. A term matches its name as a whole word, and any other way it's written. Tip:
+  select a name in the reader and press <strong>Glossary…</strong>. The reader's
+  <strong>Aa</strong> settings choose whether every mention is marked, only the first in each
+  chapter, or none.</p>
+<datalist id="glossary-categories">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+
+<details class="glossary-add" {% if not count or new_term %}open{% endif %}>
+  <summary role="button" class="outline">Add a term</summary>
+  <article>
+    <form method="post" action="/novel/{{ novel.id }}/glossary">
+      {{ term_fields(name=new_term) }}
+      <button type="submit">Add term</button>
+    </form>
+  </article>
+</details>
+
+{% for category, terms in groups %}
+<section class="glossary-group">
+  <h3>{{ category or ('Other' if groups|length > 1 else 'Terms') }}</h3>
+  <dl class="glossary">
+    {% for t in terms %}
+    <dt id="term-{{ t.id }}">{{ t.term }}
+      {%- if t.aliases %} <small class="muted">also {% for a in t.aliases %}<code>{{ a }}</code>{{ ', ' if not loop.last }}{% endfor %}</small>{% endif %}</dt>
+    <dd>
+      {% if t.description %}<div class="glossary-description">{{ t.description }}</div>{% else %}<p class="muted"><small>No description.</small></p>{% endif %}
+      <details class="glossary-edit">
+        <summary>Edit</summary>
+        <form method="post" action="/glossary/{{ t.id }}/edit">
+          {{ term_fields(t) }}
+          <div class="row-actions">
+            <button type="submit" class="small">Save</button>
+            <button type="submit" class="outline secondary small" formaction="/glossary/{{ t.id }}/delete">Delete</button>
+          </div>
+        </form>
+      </details>
+    </dd>
+    {% endfor %}
+  </dl>
+</section>
+{% endfor %}
+{% endblock %}

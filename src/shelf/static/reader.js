@@ -1,6 +1,6 @@
 (() => {
   const KEY = "shelf.reader";
-  const DEFAULTS = { theme: "auto", font: "serif", size: 19, leading: 1.7, width: 40, align: "left" };
+  const DEFAULTS = { theme: "auto", font: "serif", size: 19, leading: 1.7, width: 40, align: "left", gloss: "all" };
   const root = document.documentElement;
   const form = document.getElementById("settings");
   const article = document.getElementById("chapter");
@@ -17,6 +17,7 @@
     root.style.setProperty("--reader-width", s.width + "rem");
     root.style.setProperty("--reader-align", s.align);
     root.dataset.readerFont = s.font;
+    root.dataset.glossMode = s.gloss;
   }
 
   let settings = load();
@@ -44,9 +45,10 @@
     if (e.key === "ArrowRight" && link("next")) location.href = link("next").href;
   });
 
-  // ---- trim selected text -----------------------------------------------------
-  const fab = document.getElementById("trim-selection");
+  // ---- trim selected text, or add it to the glossary --------------------------
+  const fab = document.getElementById("selection-actions");
   const dialog = document.getElementById("trim-dialog");
+  const glossDialog = document.getElementById("gloss-dialog");
   const chapterBody = article.querySelector(".chapter-body");
   const selectedText = () => {
     const sel = getSelection();
@@ -60,16 +62,109 @@
     if (!text) { fab.hidden = true; return; }
     const rect = getSelection().getRangeAt(0).getBoundingClientRect();
     fab.style.top = (scrollY + rect.bottom + 8) + "px";
-    fab.style.left = Math.min(scrollX + rect.left, scrollX + innerWidth - 120) + "px";
+    fab.style.left = Math.max(scrollX + 8, Math.min(scrollX + rect.left, scrollX + innerWidth - 220)) + "px";
     fab.hidden = false;
   });
   fab.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
-  fab.addEventListener("click", () => {
+  document.getElementById("trim-selection").addEventListener("click", () => {
     dialog.querySelector("textarea").value = selectedText();
     fab.hidden = true;
     dialog.showModal();
   });
+  document.getElementById("gloss-selection").addEventListener("click", () => {
+    glossDialog.querySelector('[name="term"]').value = selectedText().slice(0, 200);
+    fab.hidden = true;
+    glossDialog.showModal();
+    glossDialog.querySelector('[name="description"]').focus();
+  });
   document.getElementById("trim-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("gloss-cancel").addEventListener("click", () => glossDialog.close());
+
+  // ---- glossary ------------------------------------------------------------------
+  // Terms are marked by the server; hovering, focusing or tapping one shows what it is.
+  const glossary = JSON.parse(document.getElementById("glossary-data").textContent || "{}");
+  const pop = document.getElementById("gloss-pop");
+  const seen = new Set();
+  const marks = [...chapterBody.querySelectorAll(".gloss")];
+  for (const el of marks) {
+    if (!seen.has(el.dataset.gloss)) { seen.add(el.dataset.gloss); el.classList.add("gloss-first"); }
+  }
+  const active = (el) => {
+    const mode = settings.gloss;
+    return el && mode !== "off" && (mode !== "first" || el.classList.contains("gloss-first"));
+  };
+  // Only marked terms can be reached with Tab.
+  const updateMarks = () => marks.forEach((el) => {
+    // (No role="button": the page's styles would draw each one as a button.)
+    if (active(el)) { el.tabIndex = 0; el.setAttribute("aria-describedby", "gloss-pop"); }
+    else { el.removeAttribute("tabindex"); el.removeAttribute("aria-describedby"); }
+  });
+  updateMarks();
+  let shownFor = null, pinned = false, hideTimer;
+  function showGloss(el) {
+    const entry = glossary[el.dataset.gloss];
+    if (!entry) return;
+    clearTimeout(hideTimer);
+    pop.replaceChildren();
+    const head = document.createElement("strong");
+    head.textContent = entry.term;
+    pop.append(head);
+    if (entry.category) {
+      const cat = document.createElement("small");
+      cat.className = "muted";
+      cat.textContent = " · " + entry.category;
+      pop.append(cat);
+    }
+    const desc = document.createElement("p");
+    desc.textContent = entry.description || "No description yet.";
+    if (!entry.description) desc.className = "muted";
+    const edit = document.createElement("a");
+    edit.href = `/novel/${article.dataset.novelId}/glossary#term-${el.dataset.gloss}`;
+    edit.textContent = "Edit";
+    edit.className = "gloss-edit";
+    pop.append(desc, edit);
+    pop.hidden = false;
+    const r = el.getBoundingClientRect();
+    const width = Math.min(360, innerWidth - 16);
+    pop.style.width = width + "px";
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - width - 8)) + scrollX + "px";
+    const below = r.bottom + pop.offsetHeight + 8 < innerHeight;
+    pop.style.top = (below ? r.bottom + 6 : r.top - pop.offsetHeight - 6) + scrollY + "px";
+    shownFor = el;
+  }
+  function hideGloss() { pop.hidden = true; shownFor = null; pinned = false; }
+  const later = () => { if (!pinned) hideTimer = setTimeout(hideGloss, 200); };
+
+  chapterBody.addEventListener("mouseover", (e) => {
+    const el = e.target.closest(".gloss");
+    if (active(el) && !pinned) showGloss(el);
+  });
+  chapterBody.addEventListener("mouseout", (e) => { if (e.target.closest(".gloss")) later(); });
+  pop.addEventListener("mouseover", () => clearTimeout(hideTimer));
+  pop.addEventListener("mouseout", later);
+  chapterBody.addEventListener("focusin", (e) => {
+    const el = e.target.closest(".gloss");
+    if (active(el)) showGloss(el);
+  });
+  chapterBody.addEventListener("focusout", (e) => {
+    if (e.target.closest(".gloss") && !pop.contains(e.relatedTarget)) later();
+  });
+  chapterBody.addEventListener("click", (e) => {
+    const el = e.target.closest(".gloss");
+    if (!active(el) || getSelection().toString()) return;
+    if (pinned && shownFor === el) return hideGloss();
+    showGloss(el);
+    pinned = true;
+  });
+  chapterBody.addEventListener("keydown", (e) => {
+    const el = e.target.closest(".gloss");
+    if (active(el) && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); showGloss(el); pinned = true; }
+  });
+  document.addEventListener("click", (e) => {
+    if (!pop.hidden && !pop.contains(e.target) && !e.target.closest(".gloss")) hideGloss();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !pop.hidden) hideGloss(); });
+  form.addEventListener("input", () => { updateMarks(); if (shownFor && !active(shownFor)) hideGloss(); });
 
   // ---- progress ------------------------------------------------------------
   const bar = document.getElementById("progress-bar");

@@ -1,6 +1,7 @@
 """A novel as an EPUB e-book: the chapters as Shelf shows them (hidden ones left out, trim
-rules applied, edited titles and numbers), a section page for each part or volume, and the
-images Shelf has a copy of, inside the book."""
+rules applied, edited titles and numbers), a section page for each part or volume, the
+images Shelf has a copy of, inside the book, and the novel's glossary, with each term's first
+mention in a chapter linked to it."""
 
 from __future__ import annotations
 
@@ -21,7 +22,8 @@ from sqlmodel import Session, select
 
 from . import __version__
 from .config import settings
-from .db import Chapter, Novel
+from .db import Chapter, GlossaryTerm, Novel
+from .glossary import compile_terms, mark_terms
 from .images import _sniff, images_dir, read_archived_image, resolve_images
 from .trim import apply_rules, compile_rules
 
@@ -213,6 +215,15 @@ def export_epub(session: Session, novel: Novel, dest: Path, trim_rules=()) -> in
             novel.title, f'<section class="title-page" epub:type="titlepage">'
                          f"<h1>{_x(novel.title)}</h1>{byline}{description}</section>", lang))
 
+        terms = list(session.exec(select(GlossaryTerm).where(
+            GlossaryTerm.novel_id == novel.id)))
+        terms.sort(key=lambda t: (t.category.casefold(), t.term.casefold()))
+        compiled = compile_terms(terms)
+
+        def glossary_link(tid: int, text: str, first: bool) -> str:
+            return (f'<a class="glossref" href="glossary.xhtml#g{tid}">{text}</a>'
+                    if first else text)
+
         entries: list[_Entry] = []
         section, n_sections = "", 0
         for i, chapter_id in enumerate(ids, 1):
@@ -227,13 +238,20 @@ def export_epub(session: Session, novel: Novel, dest: Path, trim_rules=()) -> in
                     entries.append(_Entry(name, section, ""))
             content = apply_rules(ch.content_html, rules)[0] if rules else ch.content_html
             content = resolve_images(session, novel, content)
+            content = mark_terms(content, compiled, glossary_link)[0]
+            body = _xhtml_body(content, images).replace(
+                '<a class="glossref" href=', '<a epub:type="noteref" href=')
             title = ch.title or f"Chapter {i}"
             name = f"c{i:05d}.xhtml"
             add(f"c{i:05d}", name, _page(title, (
-                f'<section epub:type="chapter"><h1>{_x(title)}</h1>\n'
-                f"{_xhtml_body(content, images)}\n</section>"), lang))
+                f'<section epub:type="chapter"><h1>{_x(title)}</h1>\n{body}\n</section>'),
+                lang))
             entries.append(_Entry(name, title, section))
             session.expunge(ch)  # keep memory flat on long novels
+
+        if terms:
+            add("glossary", "glossary.xhtml", _page("Glossary", _glossary(terms), lang))
+            entries.append(_Entry("glossary.xhtml", "Glossary", ""))
 
         for k, (name, mime, data) in enumerate(images.data, 1):
             z.writestr(f"OEBPS/{name}", data, compress_type=zipfile.ZIP_STORED)
@@ -268,6 +286,21 @@ def export_epub(session: Session, novel: Novel, dest: Path, trim_rules=()) -> in
             + '\n</manifest>\n<spine toc="ncx">\n' + "\n".join(spine)
             + "\n</spine>\n</package>\n"))
     return len(ids)
+
+
+def _glossary(terms: list[GlossaryTerm]) -> str:
+    out, category = ['<section epub:type="glossary"><h1>Glossary</h1>'], None
+    for t in terms:
+        if t.category != category:
+            if category is not None:
+                out.append("</dl>")
+            category = t.category
+            out.append((f"<h2>{_x(category)}</h2>" if category else "") + "<dl>")
+        paragraphs = "".join(f"<p>{_x(line)}</p>" for line in t.description.splitlines()
+                             if line.strip())
+        out.append(f'<dt id="g{t.id}">{_x(t.term)}</dt><dd>{paragraphs or "<p></p>"}</dd>')
+    out.append("</dl></section>")
+    return "".join(out)
 
 
 def _grouped(entries: list[_Entry]) -> list[tuple[_Entry, list[_Entry]]]:

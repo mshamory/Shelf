@@ -33,6 +33,7 @@ from .config import settings
 from .db import (
     Chapter,
     ChapterVersion,
+    GlossaryTerm,
     Novel,
     TrimRule,
     get_session,
@@ -44,6 +45,7 @@ from .db import (
 )
 from .extract import SIDE_SEASON, sanitize, text_length
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
+from .glossary import InvalidTerm, compile_term, compile_terms, mark_terms, mentions, split_aliases
 from .images import (
     STORED_NAME_RE,
     editable_images,
@@ -454,6 +456,8 @@ def delete_novel(session: SessionDep, novel_id: int,
     delete_versions(session, novel.id)
     for rule in session.exec(select(TrimRule).where(TrimRule.novel_id == novel_id)).all():
         session.delete(rule)
+    for term in glossary_terms(session, novel_id):
+        session.delete(term)
     session.delete(novel)
     session.commit()
     return flash_redirect("/", f"Deleted “{title}”")
@@ -624,6 +628,11 @@ def reader(request: Request, session: SessionDep, chapter_id: int, original: boo
     if rules and not original:
         content, trimmed = apply_rules(ch.content_html, rules)
     content = resolve_images(session, novel, content)
+    terms = glossary_terms(session, novel.id)
+    content, found = mark_terms(content, compile_terms(terms))
+    by_id = {t.id: t for t in terms}
+    glossary = {t: {"term": by_id[t].term, "category": by_id[t].category,
+                    "description": by_id[t].description} for t in found}
     # Warn when the next chapter skips numbers (e.g. 128 -> 130), and list chapters known
     # to exist after the last one.
     gaps_ahead = []
@@ -639,6 +648,7 @@ def reader(request: Request, session: SessionDep, chapter_id: int, original: boo
         {"novel": novel, "chapter": ch, "toc": toc, "index": idx, "prev_id": prev_id,
          "next_id": next_id, "resume": resume, "gaps_ahead": gaps_ahead,
          "content": content, "trimmed": trimmed, "original": original,
+         "glossary": glossary, "has_glossary": bool(terms),
          "has_rules": bool(rules),
          "versions": version_counts(session, novel.id).get(ch.id, 0)},
     )
@@ -749,6 +759,93 @@ def trim_rules(session: Session, novel_id: int) -> list[TrimRule]:
         .where(or_(TrimRule.novel_id == novel_id, TrimRule.novel_id == None))  # noqa: E711
         .order_by(TrimRule.created_at)
     ).all())
+
+
+# -- glossary ----------------------------------------------------------------
+
+
+def glossary_terms(session: Session, novel_id: int) -> list[GlossaryTerm]:
+    return list(session.exec(select(GlossaryTerm).where(GlossaryTerm.novel_id == novel_id)
+                             .order_by(func.lower(GlossaryTerm.term))).all())
+
+
+@app.get("/novel/{novel_id}/glossary", response_class=HTMLResponse)
+def glossary_page(request: Request, session: SessionDep, novel_id: int, term: str = ""):
+    novel = get_novel(session, novel_id)
+    terms = glossary_terms(session, novel_id)
+    categories = sorted({t.category for t in terms if t.category}, key=str.casefold)
+    groups = [(c, [t for t in terms if t.category == c]) for c in categories]
+    if any(not t.category for t in terms):
+        groups.append(("", [t for t in terms if not t.category]))
+    return templates.TemplateResponse(
+        request, "glossary.html",
+        {"novel": novel, "groups": groups, "count": len(terms), "categories": categories,
+         "new_term": term.strip()[:200]})
+
+
+def _save_term(session: Session, t: GlossaryTerm, term: str, category: str, aliases: str,
+               description: str, ignore_case: bool) -> str:
+    """Check and store a term; returns how often it's found, for the message."""
+    alias_list = split_aliases(aliases)
+    rx = compile_term(term, alias_list, ignore_case)  # raises InvalidTerm
+    t.term, t.category = re.sub(r"\s+", " ", term).strip(), category.strip()
+    t.aliases, t.description, t.ignore_case = alias_list, description.strip(), ignore_case
+    session.add(t)
+    session.commit()
+    found = mentions(rx, session.exec(select(Chapter.content_html).where(
+        Chapter.novel_id == t.novel_id, Chapter.hidden == False)))  # noqa: E712
+    return (f"“{t.term}” saved; it appears in {found} chapter{'s' if found != 1 else ''}"
+            if found else f"“{t.term}” saved; no chapter mentions it yet")
+
+
+@app.post("/novel/{novel_id}/glossary")
+def glossary_add(session: SessionDep, novel_id: int, term: Annotated[str, Form()],
+                 category: Annotated[str, Form()] = "", aliases: Annotated[str, Form()] = "",
+                 description: Annotated[str, Form()] = "",
+                 ignore_case: Annotated[bool, Form()] = False,
+                 next: Annotated[str, Form()] = ""):
+    get_novel(session, novel_id)
+    back = safe_next(next, f"/novel/{novel_id}/glossary")
+    existing = session.exec(select(GlossaryTerm).where(
+        GlossaryTerm.novel_id == novel_id,
+        func.lower(GlossaryTerm.term) == term.strip().lower())).first()
+    if existing is not None:
+        return flash_redirect(f"/novel/{novel_id}/glossary#term-{existing.id}",
+                              f"“{existing.term}” is already in the glossary", error=True)
+    try:
+        msg = _save_term(session, GlossaryTerm(novel_id=novel_id, term=term), term, category,
+                         aliases, description, ignore_case)
+    except InvalidTerm as e:
+        return flash_redirect(back, str(e), error=True)
+    return flash_redirect(back, msg)
+
+
+@app.post("/glossary/{term_id}/edit")
+def glossary_edit(session: SessionDep, term_id: int, term: Annotated[str, Form()],
+                  category: Annotated[str, Form()] = "", aliases: Annotated[str, Form()] = "",
+                  description: Annotated[str, Form()] = "",
+                  ignore_case: Annotated[bool, Form()] = False):
+    t = session.get(GlossaryTerm, term_id)
+    if t is None:
+        raise HTTPException(404)
+    back = f"/novel/{t.novel_id}/glossary#term-{t.id}"
+    try:
+        msg = _save_term(session, t, term, category, aliases, description, ignore_case)
+    except InvalidTerm as e:
+        session.rollback()
+        return flash_redirect(back, str(e), error=True)
+    return flash_redirect(back, msg)
+
+
+@app.post("/glossary/{term_id}/delete")
+def glossary_delete(session: SessionDep, term_id: int):
+    t = session.get(GlossaryTerm, term_id)
+    if t is None:
+        raise HTTPException(404)
+    novel_id, name = t.novel_id, t.term
+    session.delete(t)
+    session.commit()
+    return flash_redirect(f"/novel/{novel_id}/glossary", f"“{name}” removed from the glossary")
 
 
 def safe_next(url: str, fallback: str) -> str:

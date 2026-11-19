@@ -172,3 +172,25 @@ body { background: var(--pico-background-color); }
 .editor-body:focus { border-color: var(--pico-primary); }
 .editor-body img[data-shelf-src][title] { opacity: .7; }
 .editor-source { font-family: var(--pico-font-family-monospace); font-size: .85rem; min-height: 60vh; }
+
+/* Glossary */
+.chapter-body .gloss { text-decoration: underline dotted; text-decoration-color: var(--pico-muted-color);
+  text-underline-offset: .2em; cursor: help; }
+.chapter-body .gloss:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 1px; }
+[data-gloss-mode="off"] .chapter-body .gloss,
+[data-gloss-mode="first"] .chapter-body .gloss:not(.gloss-first) { text-decoration: none; cursor: inherit; }
+.gloss-pop { position: absolute; z-index: 30; padding: .6rem .8rem; font-size: .9rem; line-height: 1.45;
+  background: var(--pico-card-background-color); color: var(--pico-color);
+  border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius);
+  box-shadow: var(--pico-card-box-shadow); max-height: 50vh; overflow-y: auto; }
+.gloss-pop p { margin: .3rem 0 .4rem; white-space: pre-line; }
+.gloss-pop .gloss-edit { font-size: .8rem; }
+#selection-actions { display: flex; gap: .3rem; }
+#selection-actions[hidden] { display: none; }
+#selection-actions button { margin: 0; width: auto; }
+.glossary dt { font-weight: 600; margin-top: 1rem; scroll-margin-top: 4rem; }
+.glossary dt:target { color: var(--pico-primary); }
+.glossary dd { margin-left: 0; }
+.glossary-description { white-space: pre-line; }
+.glossary-edit summary { font-size: .85rem; }
+.glossary-add { margin-bottom: 1.5rem; }

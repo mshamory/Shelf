@@ -146,6 +146,21 @@ def has_archive(novel: "Novel") -> bool:
     return not novel.wacz_path.startswith(BROWSER_PREFIX)
 
 
+class GlossaryTerm(SQLModel, table=True):
+    """A term of a novel's world (a name, place, technique) with what it means, shown
+    where it appears in chapters (see glossary.py)."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    novel_id: int = Field(foreign_key="novel.id", index=True, ondelete="CASCADE")
+    term: str
+    category: str = ""  # "Character", "Place", ... (free text)
+    # Other ways it's written, one per entry; "/.../" is a regular expression.
+    aliases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    description: str = Field(default="", sa_column=Column(Text))
+    ignore_case: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class TrimRule(SQLModel, table=True):
     """Text to strip from chapters when displayed (watermarks, translator notes, ...).
 

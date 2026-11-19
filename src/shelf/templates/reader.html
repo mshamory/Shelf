@@ -28,12 +28,15 @@
     <label>Align
       <select name="align"><option value="left">Left</option><option value="justify">Justify</option></select>
     </label>
+    <label>Glossary
+      <select name="gloss"><option value="all">Mark every mention</option><option value="first">Mark the first in each chapter</option><option value="off">Don't mark terms</option></select>
+    </label>
   </form>
   <div class="reader-progress" aria-hidden="true"><div id="progress-bar"></div></div>
 </header>
 {% endblock %}
 {% block content %}
-<div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-resume="{{ resume }}">
+<div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-novel-id="{{ novel.id }}" data-resume="{{ resume }}">
   <header>
     <p class="muted chapter-meta">{% if chapter.season_label %}{{ chapter.season_label }} · {% endif %}Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
     <h1>{{ chapter.title }}</h1>
@@ -66,7 +69,28 @@
   <a href="/novel/{{ novel.id }}">Contents</a>
   {% if next_id %}<a role="button" href="/chapter/{{ next_id }}" rel="next">Next →</a>{% else %}<span class="muted">The end (for now)</span>{% endif %}
 </nav>
-<button type="button" id="trim-selection" class="trim-fab small" hidden>Trim…</button>
+<div id="selection-actions" class="trim-fab" hidden>
+  <button type="button" id="trim-selection" class="small">Trim…</button>
+  <button type="button" id="gloss-selection" class="small secondary">Glossary…</button>
+</div>
+<div id="gloss-pop" class="gloss-pop" role="tooltip" hidden></div>
+<script id="glossary-data" type="application/json">{{ glossary|tojson }}</script>
+<dialog id="gloss-dialog">
+  <article>
+    <header><strong>Add to the glossary</strong></header>
+    <form method="post" action="/novel/{{ novel.id }}/glossary">
+      <input type="hidden" name="next" value="/chapter/{{ chapter.id }}">
+      <label>Term <input name="term" required maxlength="200"></label>
+      <label>Category <small class="muted">(optional)</small> <input name="category" maxlength="60" placeholder="Character, Place, Technique…"></label>
+      <label>Description <textarea name="description" rows="3"></textarea></label>
+      <small class="muted">Aliases and regular expressions: on the <a href="/novel/{{ novel.id }}/glossary">glossary page</a>.</small>
+      <footer class="dialog-actions">
+        <button type="button" class="secondary" id="gloss-cancel">Cancel</button>
+        <button type="submit">Add term</button>
+      </footer>
+    </form>
+  </article>
+</dialog>
 <dialog id="trim-dialog">
   <article>
     <header><strong>Trim this text</strong></header>
