@@ -160,3 +160,15 @@ body { background: var(--pico-background-color); }
 .history-actions form { margin: 0; }
 .history-text { border-top: 1px solid var(--pico-muted-border-color); padding-top: 1rem; }
 .upload-form small { display: block; margin-bottom: 1rem; }
+
+/* Chapter editor */
+.editor-toolbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; display: flex;
+  flex-wrap: wrap; gap: .4rem; align-items: center; padding: .5rem 0;
+  background: var(--pico-background-color); border-bottom: 1px solid var(--pico-muted-border-color); }
+.editor-toolbar button, .editor-toolbar a { margin: 0; width: auto; }
+.editor-toolbar .spacer { flex: 1; }
+.editor-body { min-height: 50vh; padding: .5rem .75rem; border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius); outline: none; }
+.editor-body:focus { border-color: var(--pico-primary); }
+.editor-body img[data-shelf-src][title] { opacity: .7; }
+.editor-source { font-family: var(--pico-font-family-monospace); font-size: .85rem; min-height: 60vh; }

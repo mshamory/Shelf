@@ -52,6 +52,11 @@ the browser can be added too.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment
   settings, ←/→ keys for chapter navigation, and progress saved per novel (chapter and
   scroll position).
+- **Chapter editor**: **Edit text** under a chapter opens its text for fixing typos or
+  removing what trim rules can't (select and delete, *Delete paragraph*, bold/italic, or
+  the HTML itself). The text before each save stays in the chapter's history, where
+  *Restore* undoes an edit. Re-imports and re-extraction keep edited text; only sending
+  the chapter again from the browser replaces it. Trim rules still apply on top of edits.
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
   chapter search, upload of WACZ files, EPUB e-books and saved web pages from the browser,
   and hiding of non-chapter pages.

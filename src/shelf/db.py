@@ -88,6 +88,8 @@ class Chapter(SQLModel, table=True):
     custom_title: bool = False
     custom_number: bool = False
     custom_season: bool = False
+    # The text was edited in Shelf: re-imports and re-extraction keep it.
+    custom_content: bool = False
 
     novel: Novel | None = Relationship(back_populates="chapters")
 
@@ -96,7 +98,7 @@ VERSION_FIELDS = (
     "title", "custom_title", "number", "number_end", "custom_number", "season",
     "season_label", "custom_season", "url", "captured_at", "char_count", "origin",
     "capture_file", "auto_title", "auto_number", "auto_number_end", "auto_season",
-    "auto_season_label",
+    "auto_season_label", "custom_content",
 )
 
 
@@ -134,6 +136,7 @@ def restore_version(ch: "Chapter", v: ChapterVersion) -> None:
         if f in v.fields:
             setattr(ch, f, v.fields[f])
     ch.content_html = v.content_html
+    ch.custom_content = bool(v.fields.get("custom_content"))  # versions from before edits
 
 
 BROWSER_PREFIX = "browser:"

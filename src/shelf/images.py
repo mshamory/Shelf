@@ -374,3 +374,55 @@ def start_image_fetch(novel_id: int) -> bool:
         _fetches[novel_id] = ImageFetch(running=True)
     threading.Thread(target=fetch_missing_images, args=(novel_id,), daemon=True).start()
     return True
+
+
+# -- the chapter editor ------------------------------------------------------
+
+PLACEHOLDER = "/static/missing-image.svg"
+ORIGINAL_ATTR = "data-shelf-src"
+NOTE_ATTR = "data-shelf-note"  # the tooltip is the editor's, not the chapter's
+TITLE_RE = re.compile(r"""\stitle\s*=\s*(["'])(.*?)\1""", re.I | re.S)
+NOTE_RE = re.compile(r"\s" + NOTE_ATTR + r"""(?:\s*=\s*(["'])\1)?""", re.I)
+ORIGINAL_RE = re.compile(r"""\s""" + ORIGINAL_ATTR + r"""\s*=\s*(["'])(.*?)\1""", re.I | re.S)
+
+
+def editable_images(session: Session, novel: Novel, html: str) -> str:
+    """The chapter's HTML for the editor: every image kept (so saving loses none), shown
+    from Shelf's copy or as a placeholder, its original address alongside."""
+    if "<img" not in html:
+        return html
+    out, last = [], 0
+    for m, src, alt in _images(html):
+        out.append(html[last:m.start()])
+        last = m.end()
+        tag = m.group(0)
+        if not src.startswith(("http://", "https://")):
+            out.append(tag)
+            continue
+        shown = resolve_images(session, novel, tag)
+        local = SRC_RE.search(shown) if shown else None
+        new_src = local.group(2) if local else PLACEHOLDER
+        title = "" if local or TITLE_RE.search(tag) else (
+            f' {NOTE_ATTR}="" title="' + html_lib.escape(
+                ("Site decoration, not shown when reading: " if _decorative(
+                    session, novel.id, src, alt) else "Shelf has no copy of this image: ")
+                + src) + '"')
+        attrs = (f' src="{html_lib.escape(html_lib.unescape(new_src))}"'
+                 f' {ORIGINAL_ATTR}="{html_lib.escape(src)}"{title}')
+        out.append(SRC_RE.sub(lambda _m, v=attrs: v, tag, count=1))
+    out.append(html[last:])
+    return "".join(out)
+
+
+def restore_image_sources(html: str) -> str:
+    """Edited HTML back to the images' original addresses."""
+    def original(m: re.Match) -> str:
+        tag = m.group(0)
+        if o := ORIGINAL_RE.search(tag):
+            tag = ORIGINAL_RE.sub("", tag)
+            tag = SRC_RE.sub(lambda _m: f' src="{o.group(2)}"', tag, count=1)
+        if NOTE_RE.search(tag):
+            tag = TITLE_RE.sub("", NOTE_RE.sub("", tag), count=1)
+        return tag
+
+    return IMG_RE.sub(original, html)

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ chapter.title }} · {{ novel.title }}{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='chapter-editor.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ul>
+    <li><a href="/novel/{{ novel.id }}">{{ novel.title }}</a></li>
+    <li><a href="/chapter/{{ chapter.id }}">{{ chapter.title }}</a></li>
+    <li>Edit text</li>
+  </ul>
+</nav>
+<form method="post" action="/chapter/{{ chapter.id }}/text" id="editor-form" class="chapter-editor">
+  <input type="hidden" name="html" id="editor-html">
+  <div class="editor-toolbar" role="toolbar" aria-label="Formatting">
+    <button type="button" class="outline secondary small" data-command="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button type="button" class="outline secondary small" data-command="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button type="button" class="outline secondary small" data-command="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+    <button type="button" class="outline secondary small" data-command="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+    <button type="button" class="outline secondary small" data-command="removeBlock" title="Delete the paragraphs the cursor or selection is in">Delete paragraph</button>
+    <button type="button" class="outline secondary small" data-command="html" aria-pressed="false" title="Edit the chapter's HTML">HTML</button>
+    <span class="spacer"></span>
+    <a href="/chapter/{{ chapter.id }}" class="secondary">Cancel</a>
+    <button type="submit" class="small" title="Save (Ctrl+S)">Save</button>
+  </div>
+  <p class="muted"><small>
+    Click into the text to fix it, or select text and press Delete. Saving keeps the text
+    before in the chapter's <a href="/chapter/{{ chapter.id }}/history">history</a>{% if versions %} ({{ versions }} earlier version{{ 's' if versions != 1 }}){% endif %}, and re-imports keep your edit.
+    {% if trimmed %}This shows the text before trim rules: they remove {{ trimmed }} passage{{ 's' if trimmed != 1 }} from it when reading.{% endif %}
+  </small></p>
+  <h1 class="editor-title">{{ chapter.title }}</h1>
+  <div class="chapter-body editor-body" id="editor" contenteditable="true" spellcheck="true" lang="en"
+       role="textbox" aria-multiline="true" aria-label="Chapter text">{{ content|safe }}</div>
+  <textarea id="editor-source" class="editor-source" rows="24" spellcheck="false" hidden aria-label="Chapter HTML"></textarea>
+</form>
+{% endblock %}

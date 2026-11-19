@@ -42,14 +42,16 @@ from .db import (
     save_version,
     utcnow,
 )
-from .extract import SIDE_SEASON
+from .extract import SIDE_SEASON, sanitize, text_length
 from .gaps import find_season_gaps, gaps_before, missing_count, reason_counts
 from .images import (
     STORED_NAME_RE,
+    editable_images,
     fetch_status,
     images_dir,
     read_archived_image,
     resolve_images,
+    restore_image_sources,
     save_image,
     start_image_fetch,
     wanted_images,
@@ -663,6 +665,42 @@ def chapter_history(request: Request, session: SessionDep, chapter_id: int,
         request, "history.html",
         {"novel": novel, "chapter": ch, "versions": versions, "shown": shown,
          "shown_html": resolve_images(session, novel, shown.content_html) if shown else ""})
+
+
+@app.get("/chapter/{chapter_id}/text", response_class=HTMLResponse)
+def chapter_text(request: Request, session: SessionDep, chapter_id: int):
+    """The chapter editor: its text as imported or last edited, before trim rules."""
+    ch = session.get(Chapter, chapter_id)
+    if ch is None:
+        raise HTTPException(404, "Chapter not found")
+    novel = get_novel(session, ch.novel_id)
+    rules = compile_rules(trim_rules(session, novel.id))
+    trimmed = apply_rules(ch.content_html, rules)[1] if rules else 0
+    return templates.TemplateResponse(
+        request, "chapter_text.html",
+        {"novel": novel, "chapter": ch, "trimmed": trimmed,
+         "content": editable_images(session, novel, ch.content_html),
+         "versions": version_counts(session, novel.id).get(ch.id, 0)})
+
+
+@app.post("/chapter/{chapter_id}/text")
+def save_chapter_text(session: SessionDep, chapter_id: int,
+                      html: Annotated[str, Form()] = ""):
+    """Save edited text. The text before goes into the chapter's history."""
+    ch = session.get(Chapter, chapter_id)
+    if ch is None:
+        raise HTTPException(404, "Chapter not found")
+    new = sanitize(restore_image_sources(html)).strip()
+    if not text_length(new) and "<img" not in new:
+        return flash_redirect(f"/chapter/{ch.id}/text",
+                              "The chapter would be empty. To drop it, hide it in the "
+                              "chapter list instead.", error=True)
+    if new == sanitize(ch.content_html).strip():
+        return flash_redirect(f"/chapter/{ch.id}", "No changes")
+    save_version(session, ch, "Replaced by your edit")
+    ch.content_html, ch.char_count, ch.custom_content = new, text_length(new), True
+    session.commit()
+    return flash_redirect(f"/chapter/{ch.id}", "Chapter saved")
 
 
 @app.post("/chapter/{chapter_id}/history/{version_id}/restore")

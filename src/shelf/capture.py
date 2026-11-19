@@ -236,7 +236,8 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
     if target is not None and (other_page or target.content_html != ec.html):
         save_version(session, target, f"Replaced by a capture of {ec.url}")
     ch.url = ec.url
-    ch.content_html, ch.char_count = ec.html, ec.text_length
+    # A new capture replaces the text, edited or not (the edit stays in the history).
+    ch.content_html, ch.char_count, ch.custom_content = ec.html, ec.text_length, False
     ch.captured_at = utcnow().strftime("%Y%m%d%H%M%S")
     ch.origin = "browser"
     ch.capture_file = _save_raw(novel.id, html)
@@ -379,7 +380,8 @@ def refresh_captures(session: Session, novel: Novel) -> int:
         others = [c for c in chapters if c is not ch]
         _fit_range(ec, others)
         season, label = _season_for(ec, others)
-        ch.content_html, ch.char_count = ec.html, ec.text_length
+        if not ch.custom_content:  # text you edited stays
+            ch.content_html, ch.char_count = ec.html, ec.text_length
         ch.auto_title, ch.auto_number, ch.auto_number_end = ec.title, ec.number, ec.number_end
         ch.auto_season, ch.auto_season_label = season, label
         if not ch.custom_title:

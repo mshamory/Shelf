@@ -795,6 +795,9 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
             if prev.custom_season:
                 ch.season, ch.season_label, ch.custom_season = (
                     prev.season, prev.season_label, True)
+            if prev.custom_content:  # text you edited stays
+                ch.content_html, ch.char_count, ch.custom_content = (
+                    prev.content_html, prev.char_count, True)
         session.add(ch)
         new_chapters.append(ch)
     new_chapters += kept
