@@ -195,3 +195,13 @@ def test_edit_chapter_title_and_number(client):
 def test_pages_follow_the_system_theme(client):  # noqa: F811
     # Pico's automatic dark mode applies only while <html> has no data-theme at all.
     assert "data-theme" not in client.get("/").text.split("<head>")[0]
+
+
+def test_static_files_carry_their_version(client):  # noqa: F811
+    """A changed script gets a new address, so a browser's cached copy isn't used with a
+    newer page."""
+    import re
+
+    html = client.get("/").text
+    css = re.search(r'href="(/static/shelf\.css\?v=[0-9a-f]+)"', html).group(1)
+    assert client.get(css).status_code == 200

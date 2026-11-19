@@ -96,6 +96,19 @@ templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.globals.update(version=__version__, settings=settings, has_archive=has_archive)
 
 
+def asset(path: str) -> str:
+    """A static file's address, changing whenever the file does, so browsers never pair a
+    cached old script or style with a newer page."""
+    try:
+        stamp = format((HERE / "static" / path).stat().st_mtime_ns, "x")
+    except OSError:
+        stamp = __version__
+    return f"/static/{path}?v={stamp}"
+
+
+templates.env.globals["asset"] = asset
+
+
 def epub_file(novel: Novel, url: str) -> str:
     """The e-book a chapter is from: the novel's file, or the volume in its folder."""
     if novel.wacz_path.endswith("/"):

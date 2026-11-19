@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}Shelf{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='vendor/pico.min.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', path='shelf.css') }}">
+  <link rel="stylesheet" href="{{ asset('vendor/pico.min.css') }}">
+  <link rel="stylesheet" href="{{ asset('shelf.css') }}">
   <script>
     // Apply the saved theme before first paint.
     try { const t = JSON.parse(localStorage.getItem("shelf.reader") || "{}").theme;
