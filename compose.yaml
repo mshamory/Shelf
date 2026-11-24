@@ -1,7 +1,7 @@
 services:
   shelf:
     build: .
-    image: shelf:latest
+    image: ${SHELF_IMAGE:-ghcr.io/mshamory/shelf:latest}
     container_name: shelf
     restart: unless-stopped
     ports:

@@ -156,8 +156,13 @@ You can also edit the title, authors, genres, tags and status by hand.
 ```sh
 mkdir -p library data
 cp ~/Downloads/*.wacz library/
-docker compose up -d --build
+docker compose up -d
 ```
+
+This pulls the published image, `ghcr.io/mshamory/shelf` (for `linux/amd64` and
+`linux/arm64`). `latest` is the newest release and `edge` follows `master`; set `SHELF_IMAGE`
+to pick another tag, such as `SHELF_IMAGE=ghcr.io/mshamory/shelf:0.1`. To build from your
+checkout instead, run `docker compose up -d --build`.
 
 Then open <http://localhost:8000>. The library is scanned at startup and whenever you press
 **Rescan library**. Uploaded files are saved to `library/uploads/`.
@@ -176,6 +181,20 @@ mount `library` read-only and set `SHELF_ALLOW_UPLOADS=false`.
 
 Shelf has no authentication. Run it on a trusted network or put it behind a reverse proxy
 that handles authentication.
+
+## Releases
+
+GitHub Actions runs ruff and the tests on every push and pull request, and publishes the
+`edge` image from `master`. To make a release, set the same version in `pyproject.toml` and
+`src/shelf/__init__.py`, commit, then push a tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag publishes the image as `0.2.0`, `0.2` and `latest` (and `0` from 1.0 on), and creates
+a GitHub release with generated notes, the wheel, the source archive and the browser
+extension. A tag with a suffix, like `v0.2.0-rc1`, is marked as a pre-release.
 
 ## How a WACZ becomes a novel
 
