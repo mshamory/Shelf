@@ -5,7 +5,7 @@
   --reader-align: left;
   --pico-form-element-spacing-vertical: .5rem;
 }
-[data-theme="sepia"] {
+:root[data-theme="sepia"] {  /* as specific as Pico's :root:not([data-theme=dark]) */
   color-scheme: light;
   --pico-background-color: #f4ecd8;
   --pico-color: #4b3b2a;
