@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shelf: a self-hosted reader for your web-novel archives</title>
+<meta name="description" content="Shelf turns WACZ web archives and EPUBs of web novels into a clean, self-hosted library and reader, with NovelUpdates metadata, a glossary, a chapter editor and EPUB export.">
+<meta property="og:title" content="Shelf">
+<meta property="og:description" content="A self-hosted reader for your web-novel archives.">
+<meta property="og:image" content="https://mshamory.github.io/Shelf/screenshots/library.webp">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #fbf8f2;
+  --bg-alt: #f3ede1;
+  --card: #ffffff;
+  --ink: #1f2330;
+  --muted: #5d6273;
+  --line: #e4dccb;
+  --accent: #b8650f;
+  --accent-ink: #ffffff;
+  --link: #95500a;
+  --code-bg: #1d2133;
+  --code-ink: #e8e6df;
+  --shadow: 0 1px 2px rgb(30 25 15 / .06), 0 12px 32px -12px rgb(30 25 15 / .22);
+  --serif: "Iowan Old Style", "Charter", "Bitstream Charter", "Noto Serif", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151f;
+    --bg-alt: #181c29;
+    --card: #1d2231;
+    --ink: #e9e6de;
+    --muted: #a3a6b3;
+    --line: #2c3243;
+    --accent: #f2a541;
+    --accent-ink: #1b1406;
+    --link: #f4b660;
+    --code-bg: #0b0d14;
+    --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 16px 40px -16px rgb(0 0 0 / .7);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 var(--sans); }
+a { color: var(--link); }
+img { max-width: 100%; height: auto; display: block; }
+.wrap { max-width: 72rem; margin: 0 auto; padding-inline: 1.25rem; }
+
+/* header */
+header.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; align-items: center; gap: 1.5rem; height: 3.5rem; }
+.brand { font: 700 1.15rem var(--serif); color: var(--ink); text-decoration: none; margin-right: auto; }
+header nav { display: flex; gap: 1.25rem; font-size: .95rem; }
+header nav a { color: var(--muted); text-decoration: none; }
+header nav a:hover { color: var(--ink); }
+@media (max-width: 40rem) { header nav a:not(.gh) { display: none; } }
+
+/* hero */
+.hero { padding-block: 4.5rem 3rem; text-align: center; }
+.hero h1 { font: 700 clamp(2.3rem, 6vw, 3.8rem)/1.08 var(--serif); letter-spacing: -.02em; margin: 0 auto 1.1rem; max-width: 18ch; }
+.hero p.lede { font-size: 1.2rem; color: var(--muted); max-width: 40rem; margin: 0 auto 2rem; }
+.buttons { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+.btn { display: inline-block; padding: .7rem 1.3rem; border-radius: .6rem; font-weight: 600; text-decoration: none;
+  border: 1px solid var(--line); color: var(--ink); background: var(--card); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:hover { filter: brightness(1.06); }
+.version { margin-top: 1rem; font-size: .9rem; color: var(--muted); }
+
+.frame { border-radius: .75rem; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: var(--card); }
+.frame .bar { height: 1.9rem; display: flex; align-items: center; gap: .4rem; padding-inline: .8rem; border-bottom: 1px solid var(--line); }
+.frame .bar i { width: .62rem; height: .62rem; border-radius: 50%; background: var(--line); }
+.hero .frame { margin-top: 3.25rem; }
+
+/* sections */
+section { padding-block: 4rem; }
+section.alt { background: var(--bg-alt); border-block: 1px solid var(--line); }
+h2 { font: 700 clamp(1.7rem, 4vw, 2.3rem)/1.15 var(--serif); margin: 0 0 .6rem; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 0 0 2.5rem; max-width: 44rem; }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; counter-reset: step; }
+.step { background: var(--card); border: 1px solid var(--line); border-radius: .75rem; padding: 1.4rem; }
+.step::before { counter-increment: step; content: counter(step); display: inline-grid; place-items: center;
+  width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; margin-bottom: .7rem; }
+.step h3, .feature h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
+.step p, .feature p { margin: 0; color: var(--muted); font-size: .96rem; }
+
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 2rem 2.5rem; }
+.feature { padding-left: 1rem; border-left: 3px solid var(--accent); }
+
+/* showcase rows */
+.show { display: grid; grid-template-columns: 1.6fr 1fr; gap: 2.5rem; align-items: center; margin-bottom: 4rem; }
+.show:last-child { margin-bottom: 0; }
+.show.flip { grid-template-columns: 1fr 1.6fr; }
+.show.flip .frame { order: 2; }
+.show h3 { font: 700 1.5rem/1.2 var(--serif); margin: 0 0 .6rem; }
+.show p { color: var(--muted); margin: 0 0 .8rem; }
+.show ul { color: var(--muted); padding-left: 1.2rem; margin: 0; }
+.phone { max-width: 17rem; margin-inline: auto; border-radius: 1.6rem; overflow: hidden; border: 6px solid var(--ink); box-shadow: var(--shadow); }
+@media (max-width: 50rem) {
+  .show, .show.flip { grid-template-columns: 1fr; gap: 1.5rem; }
+  .show.flip .frame { order: 0; }
+}
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1.5rem; }
+.gallery figure { margin: 0; }
+.gallery figcaption { margin-top: .6rem; font-size: .92rem; color: var(--muted); }
+.gallery a { display: block; }
+
+/* install */
+.tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.tabs button { font: inherit; font-size: .95rem; padding: .45rem .95rem; border-radius: 2rem; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.panel p { color: var(--muted); }
+pre { background: var(--code-bg); color: var(--code-ink); padding: 1.1rem 1.25rem; border-radius: .6rem; overflow-x: auto;
+  font: .9rem/1.6 var(--mono); margin: 0 0 1rem; }
+pre .c { color: #8d93a8; }
+code { font-family: var(--mono); font-size: .9em; }
+:not(pre) > code { background: var(--bg-alt); border: 1px solid var(--line); padding: .05rem .35rem; border-radius: .3rem; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 2.5rem; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+
+.note { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: .5rem; padding: 1rem 1.25rem; color: var(--muted); }
+.note strong { color: var(--ink); }
+
+footer { padding-block: 2.5rem; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#">📚 Shelf</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/mshamory/Shelf">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <h1>Your web-novel archives, as a library</h1>
+    <p class="lede">Shelf is a self-hosted reader for web novels you've saved. Point it at a folder of
+      <a href="https://specs.webrecorder.net/wacz/latest/">WACZ</a> web archives or EPUBs and it finds the
+      chapters, puts them in order, fills in the details from NovelUpdates, and gives you a calm,
+      distraction-free place to read.</p>
+    <div class="buttons">
+      <a class="btn primary" href="#install">Get started</a>
+      <a class="btn" href="https://github.com/mshamory/Shelf">View on GitHub</a>
+    </div>
+    <p class="version"><a href="https://github.com/mshamory/Shelf/releases/latest">Latest release</a> · Docker image for amd64 and arm64</p>
+    <div class="frame">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <picture>
+        <source srcset="screenshots/library-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="screenshots/library.webp" width="1280" height="800" alt="Shelf's library: six novels shown as covers, with Continue links on the ones being read">
+      </picture>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Shelf reads what you've already saved. It never logs in anywhere or scrapes a site for you.</p>
+    <div class="steps">
+      <div class="step"><h3>Save the novel</h3><p>Archive the chapters with <a href="https://archiveweb.page">ArchiveWeb.page</a> or Browsertrix, send pages with the Shelf Capture browser extension, or use an EPUB or pages saved with Ctrl+S.</p></div>
+      <div class="step"><h3>Drop it in the library</h3><p>Put the files in Shelf's library folder or upload them in the browser. Shelf pulls out each chapter's text, numbers it and spots the gaps.</p></div>
+      <div class="step"><h3>Read anywhere</h3><p>Open Shelf on your computer, tablet or phone. It remembers where you stopped in every novel.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What it does</h2>
+    <p class="sub">Built for the messy reality of web novels: chapters spread across sites, renamed posts, missing pages, and text that sites try to hide.</p>
+    <div class="features">
+      <div class="feature"><h3>Finds the chapters</h3><p>Pulls the story out of each page, dropping menus, share buttons and comments, and orders chapters by number, from “Ch. 7.5” to “第12章”. It even finds chapters a site loaded with JavaScript.</p></div>
+      <div class="feature"><h3>Shows what's missing</h3><p>Lists gaps in the numbering and why each chapter is missing: never saved, locked, or only a preview. When a chapter was saved twice, you pick which copy to read.</p></div>
+      <div class="feature"><h3>NovelUpdates details</h3><p>Fills in the cover, description, authors, genres, tags, rating and status from a saved NovelUpdates page, sent by the extension or uploaded.</p></div>
+      <div class="feature"><h3>A comfortable reader</h3><p>Light, dark and sepia themes; your choice of font, size, spacing and width; arrow keys for the next chapter; and your place saved in every novel.</p></div>
+      <div class="feature"><h3>Glossary</h3><p>Describe a novel's characters, places and terms once, and see the description wherever they appear. Terms can have other names and regular expressions.</p></div>
+      <div class="feature"><h3>Chapter editor</h3><p>Fix typos or cut a translator's note in place. Every earlier version stays in the chapter's history, ready to restore.</p></div>
+      <div class="feature"><h3>Shelf Capture extension</h3><p>Sends the page you're reading to Shelf exactly as your browser shows it. When Shelf is sure which novel a chapter belongs to, Alt+Shift+D sends it without asking.</p></div>
+      <div class="feature"><h3>EPUB export</h3><p>Download any novel as an EPUB with its cover, contents and glossary, for your e-reader.</p></div>
+      <div class="feature"><h3>Search &amp; trim</h3><p>Search the text of every chapter you've saved, and set trim rules that remove a site's repeated notices or ads, for one novel or all of them.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="screenshots" class="alt">
+  <div class="wrap">
+    <h2>A look inside</h2>
+    <p class="sub">The screenshots use a demo library of made-up novels.</p>
+
+    <div class="show">
+      <div class="frame"><div class="bar"><i></i><i></i><i></i></div>
+        <img src="screenshots/reader.webp" width="1280" height="800" loading="lazy" alt="The reader showing a chapter, with a glossary pop-up describing the term Emberglass"></div>
+      <div>
+        <h3>Reading, with a glossary</h3>
+        <p>Glossary terms are underlined in the text. Hover, tap or Tab to one to see what it is.</p>
+        <ul>
+          <li>Select a name in the text to add it to the glossary.</li>
+          <li>Mark every mention, only the first in each chapter, or none.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="show flip">
+      <div class="frame"><div class="bar"><i></i><i></i><i></i></div>
+        <img src="screenshots/reader-sepia.webp" width="1280" height="800" loading="lazy" alt="The reader in the sepia theme with the reading settings open"></div>
+      <div>
+        <h3>Set it up your way</h3>
+        <p>The <strong>Aa</strong> menu changes theme, font, size, line height, width and alignment. Your choices apply in every novel.</p>
+      </div>
+    </div>
+
+    <div class="show">
+      <div class="phone"><img src="screenshots/reader-phone.webp" width="780" height="1688" loading="lazy" alt="The reader on a phone in the dark theme, with a glossary pop-up open"></div>
+      <div>
+        <h3>On your phone, too</h3>
+        <p>Shelf is a web app, so any device on your network can use it with nothing to install. Your place is saved on the server, so you can start a chapter on your computer and finish it on your phone.</p>
+      </div>
+    </div>
+
+    <div class="gallery">
+      <figure><a href="screenshots/novel.webp"><div class="frame"><img src="screenshots/novel.webp" width="1280" height="800" loading="lazy" alt="A novel's page with cover, details, Continue and Download EPUB buttons"></div></a>
+        <figcaption>A novel's page: its details, your progress, the contents and an EPUB download.</figcaption></figure>
+      <figure><a href="screenshots/glossary.webp"><div class="frame"><img src="screenshots/glossary.webp" width="1280" height="800" loading="lazy" alt="A novel's glossary page listing characters with their descriptions and other names"></div></a>
+        <figcaption>A novel's glossary, grouped by category.</figcaption></figure>
+      <figure><a href="screenshots/editor.webp"><div class="frame"><img src="screenshots/editor.webp" width="1280" height="800" loading="lazy" alt="The chapter editor with undo, bold, italic, delete paragraph and HTML buttons"></div></a>
+        <figcaption>The chapter editor. Every save keeps the text from before.</figcaption></figure>
+      <figure><a href="screenshots/search.webp"><div class="frame"><img src="screenshots/search.webp" width="1280" height="800" loading="lazy" alt="Search results for “north tower” showing matching passages from two chapters"></div></a>
+        <figcaption>Search across every chapter in your library.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">Shelf runs on your own computer or home server. Put your <code>.wacz</code> and <code>.epub</code> files in a <code>library</code> folder, start Shelf, and open <a href="http://localhost:8000">localhost:8000</a>.</p>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" aria-controls="p-compose" id="t-compose">Docker Compose</button>
+      <button role="tab" aria-selected="false" aria-controls="p-run" id="t-run">docker run</button>
+      <button role="tab" aria-selected="false" aria-controls="p-source" id="t-source">From source</button>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-compose" aria-labelledby="t-compose">
+<pre><span class="c"># compose.yaml</span>
+services:
+  shelf:
+    image: ghcr.io/mshamory/shelf:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./library:/library   <span class="c"># your .wacz and .epub files</span>
+      - ./data:/data         <span class="c"># database, covers, saved pages</span></pre>
+<pre>mkdir -p library data
+docker compose up -d</pre>
+      <p>Or clone the repository and run <code>docker compose up -d</code> there; its <code>compose.yaml</code> is the same.</p>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-run" aria-labelledby="t-run" hidden>
+<pre>mkdir -p library data
+docker run -d --name shelf -p 8000:8000 \
+  -v "$PWD/library:/library" -v "$PWD/data:/data" \
+  ghcr.io/mshamory/shelf:latest</pre>
+      <p>The container runs as user ID 1000, so the two folders need to be writable by that user.</p>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-source" aria-labelledby="t-source" hidden>
+<pre>git clone https://github.com/mshamory/Shelf.git
+cd Shelf
+uv sync
+uv run shelf     <span class="c"># http://localhost:8000, uses ./library and ./data</span></pre>
+      <p>Needs Python 3.12 and <a href="https://docs.astral.sh/uv/">uv</a>. Each <a href="https://github.com/mshamory/Shelf/releases">release</a> also has a wheel you can install with <code>pip install shelf-*.whl</code>.</p>
+    </div>
+
+    <div class="cols" style="margin-top:2.5rem">
+      <div>
+        <h3>Image tags</h3>
+        <div class="table-wrap"><table>
+          <tr><th>Tag</th><th>What it is</th></tr>
+          <tr><td><code>latest</code></td><td>The newest release</td></tr>
+          <tr><td><code>0.1</code>, <code>0.1.0</code></td><td>A specific release</td></tr>
+          <tr><td><code>edge</code></td><td>The newest commit on <code>master</code></td></tr>
+        </table></div>
+      </div>
+      <div>
+        <h3>Settings</h3>
+        <div class="table-wrap"><table>
+          <tr><th>Variable</th><th>Default</th></tr>
+          <tr><td><code>SHELF_SCAN_ON_STARTUP</code></td><td><code>true</code></td></tr>
+          <tr><td><code>SHELF_ALLOW_UPLOADS</code></td><td><code>true</code></td></tr>
+          <tr><td><code>SHELF_FETCH_COVERS</code></td><td><code>true</code></td></tr>
+          <tr><td><code>SHELF_PORT</code></td><td><code>8000</code></td></tr>
+        </table></div>
+        <p style="color:var(--muted);font-size:.93rem">More in the <a href="https://github.com/mshamory/Shelf#running-with-docker">README</a>.</p>
+      </div>
+    </div>
+
+    <div class="cols" style="margin-top:2.5rem">
+      <div>
+        <h3>The browser extension</h3>
+        <p style="color:var(--muted)">Shelf Capture comes with Shelf. Use the <strong>Browser extension</strong> link at the bottom of any Shelf page to download it, then unzip it.</p>
+        <ul style="color:var(--muted)">
+          <li><strong>Chrome, Edge, Brave:</strong> open <code>chrome://extensions</code>, turn on Developer mode, choose <em>Load unpacked</em> and pick the folder.</li>
+          <li><strong>Firefox:</strong> open <code>about:debugging</code> → <em>This Firefox</em> → <em>Load Temporary Add-on…</em> and pick <code>manifest.json</code>.</li>
+        </ul>
+        <p style="color:var(--muted)">Then set Shelf's address in the extension's <em>Settings</em>.</p>
+      </div>
+      <div>
+        <h3>Before you expose it</h3>
+        <div class="note"><strong>Shelf has no login.</strong> Run it on a network you trust, or put it behind a reverse proxy that requires one.</div>
+        <div class="note" style="margin-top:1rem"><strong>Shelf respects what sites protect.</strong> It doesn't get around bot protection or decrypt protected chapters, and it won't open EPUBs with DRM. It works with what you've saved.</div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>📚 Shelf: a self-hosted web-novel reader</span>
+    <span><a href="https://github.com/mshamory/Shelf">Source</a> · <a href="https://github.com/mshamory/Shelf/releases">Releases</a> · <a href="https://github.com/mshamory/Shelf/issues">Issues</a></span>
+  </div>
+</footer>
+
+<script>
+  const tabs = [...document.querySelectorAll('[role=tab]')];
+  for (const tab of tabs) tab.addEventListener('click', () => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute('aria-selected', on);
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    }
+  });
+</script>
+</body>
+</html>

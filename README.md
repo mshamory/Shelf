@@ -7,6 +7,8 @@ the chapters, orders them, and serves them in a clean, distraction-free reader w
 metadata from [NovelUpdates](https://www.novelupdates.com). EPUB e-books and pages saved from
 the browser can be added too.
 
+**Website:** <https://mshamory.github.io/Shelf/> (overview, screenshots and install steps)
+
 ## Features
 
 - **WACZ parsing**: random-access reads through the archive's CDXJ index; falls back to
