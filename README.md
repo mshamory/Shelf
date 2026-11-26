@@ -69,6 +69,14 @@ the browser can be added too.
 - **Library**: covers, filter by title/author/genre/tag, "continue reading" links, full-text
   chapter search, upload of WACZ files, EPUB e-books and saved web pages from the browser,
   and hiding of non-chapter pages.
+- **Reading lists**: put each novel on Reading, Plan to read, On hold, Finished or Dropped
+  (*My list* on the novel's page) and filter the library by list. Opening a chapter moves a
+  novel that isn't on a list, or is on Plan to read, to Reading.
+- **New chapters**: when an import or a chapter sent from the browser adds chapters after your
+  place, the novel's cover shows "3 new" until you next read it, and the *New chapters* filter
+  lists those novels. Each card shows how many chapters are left after your place, and
+  *Recently updated* sorts by when chapters were last added. Hiding, showing or renumbering
+  chapters yourself doesn't count as new.
 
 ### Browser extension
 

@@ -69,6 +69,14 @@ from .library import (
     start_scan,
 )
 from .novelupdates import MetadataError, fetch_series, is_series_url, parse_series_page
+from .reading import (
+    STATUSES,
+    chapters_left,
+    keep_new,
+    new_chapters,
+    new_count,
+    note_read,
+)
 from .saved import MAX_PAGE_BYTES, add_saved_pages, is_saved_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
 from .volumes import UPLOADS_DIR, volume_number
@@ -171,7 +179,8 @@ def novel_gaps(session: Session, novel_id: int | None = None):
 
 
 @app.get("/", response_class=HTMLResponse)
-def library(request: Request, session: SessionDep, q: str = "", sort: str = "recent"):
+def library(request: Request, session: SessionDep, q: str = "", sort: str = "recent",
+            status: str = ""):
     counts = dict(
         session.exec(
             select(Chapter.novel_id, func.count(Chapter.id))
@@ -189,10 +198,23 @@ def library(request: Request, session: SessionDep, q: str = "", sort: str = "rec
                 [n.title, n.archive_title, *n.alt_names, *n.authors, *n.genres, *n.tags]
             ).lower()
         ]
+    left = chapters_left(session)
+    new = {n.id: k for n in novels if (k := new_count(n, left.get(n.id, 0)))}
+    # How many novels each filter shows (within the text filter), for the filter links.
+    status_counts = {key: sum(1 for n in novels if n.reading_status == key) for key in STATUSES}
+    status_counts["new"] = len(new)
+    if status == "new":
+        novels = [n for n in novels if n.id in new]
+    elif status in STATUSES:
+        novels = [n for n in novels if n.reading_status == status]
+    else:
+        status = ""
     if sort == "title":
         novels.sort(key=lambda n: n.title.lower())
     elif sort == "added":
         novels.sort(key=lambda n: n.added_at, reverse=True)
+    elif sort == "updated":
+        novels.sort(key=lambda n: n.updated_at or n.added_at, reverse=True)
     else:
         novels.sort(key=lambda n: (n.last_read_at or n.added_at), reverse=True)
 
@@ -206,7 +228,8 @@ def library(request: Request, session: SessionDep, q: str = "", sort: str = "rec
         request,
         "library.html",
         {"novels": novels, "counts": counts, "progress": progress, "q": q, "sort": sort,
-         "scan": scan_status, "missing": missing,
+         "scan": scan_status, "missing": missing, "status": status,
+         "statuses": STATUSES, "status_counts": status_counts, "new": new, "left": left,
          "all_novels": sorted(session.exec(select(Novel)).all(), key=lambda n: n.title.lower())},
     )
 
@@ -346,6 +369,7 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         select(func.count(Chapter.id)).where(Chapter.novel_id == novel_id, Chapter.hidden == True)  # noqa: E712
     ).one()
     last = session.get(Chapter, novel.last_chapter_id) if novel.last_chapter_id else None
+    left = chapters_left(session, [novel_id]).get(novel_id, 0)
     gaps = novel_gaps(session, novel_id).get(novel_id, [])
     main = [c for c in chapters if c.number is not None and c.season != SIDE_SEASON]
     first_season = min((c.season or 0 for c in main), default=0)
@@ -354,6 +378,7 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         request,
         "novel.html",
         {"novel": novel, "chapters": chapters, "last": last, "show_hidden": hidden,
+         "left": left, "new": new_count(novel, left), "statuses": STATUSES,
          "hidden_count": hidden_count, "gaps": gaps,
          "total_chapters": (len(chapters) if hidden else len(chapters) + hidden_count),
          "archive_exists": has_archive(novel)
@@ -480,8 +505,21 @@ def delete_novel(session: SessionDep, novel_id: int,
 def reset_progress(session: SessionDep, novel_id: int):
     novel = get_novel(session, novel_id)
     novel.last_chapter_id, novel.last_position, novel.last_read_at = None, 0.0, None
+    novel.left_when_read = None
     session.commit()
     return flash_redirect(f"/novel/{novel_id}", "Progress reset")
+
+
+@app.post("/novel/{novel_id}/status")
+def set_reading_status(session: SessionDep, novel_id: int,
+                       status: Annotated[str, Form()] = ""):
+    novel = get_novel(session, novel_id)
+    if status and status not in STATUSES:
+        raise HTTPException(400, "Unknown reading status")
+    novel.reading_status = status or None
+    session.commit()
+    return flash_redirect(f"/novel/{novel_id}",
+                          f"Marked as {STATUSES[status]}" if status else "Removed from your lists")
 
 
 @app.post("/chapter/{chapter_id}/toggle-hidden")
@@ -489,7 +527,10 @@ def toggle_hidden(session: SessionDep, chapter_id: int):
     ch = session.get(Chapter, chapter_id)
     if ch is None:
         raise HTTPException(404)
+    novel = get_novel(session, ch.novel_id)
+    before = new_chapters(session, novel)
     ch.hidden = not ch.hidden
+    keep_new(session, novel, before)
     session.commit()
     return flash_redirect(f"/novel/{ch.novel_id}?hidden=1#ch-{ch.id}")
 
@@ -563,6 +604,8 @@ def edit_chapter(
     if ch is None:
         raise HTTPException(404)
     back = f"/novel/{ch.novel_id}?hidden=1#ch-{ch.id}"
+    novel = get_novel(session, ch.novel_id)
+    new_before = new_chapters(session, novel)
     auto_title = ch.auto_title or ch.title
     if reset:
         title, number, season = "", "", "auto"
@@ -607,6 +650,7 @@ def edit_chapter(
     session.flush()
     chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == ch.novel_id)).all())
     resequence(chapters)
+    keep_new(session, novel, new_before)
     session.commit()
     return flash_redirect(back, "Chapter reset" if reset else "Chapter saved")
 
@@ -735,11 +779,14 @@ def restore_chapter_version(session: SessionDep, chapter_id: int, version_id: in
     if ch is None or v is None or v.chapter_id != ch.id:
         raise HTTPException(404, "Version not found")
     when = v.saved_at.strftime("%Y-%m-%d %H:%M")
+    novel = get_novel(session, ch.novel_id)
+    new_before = new_chapters(session, novel)
     save_version(session, ch, f"Replaced by restoring the version from {when}")
     restore_version(ch, v)
     session.delete(v)
     session.flush()
     resequence(list(session.exec(select(Chapter).where(Chapter.novel_id == ch.novel_id)).all()))
+    keep_new(session, novel, new_before)
     session.commit()
     return flash_redirect(f"/chapter/{ch.id}", f"Restored the version from {when}")
 
@@ -758,6 +805,7 @@ def save_progress(session: SessionDep, p: Progress):
     novel.last_chapter_id = ch.id
     novel.last_position = min(max(p.position, 0.0), 1.0)
     novel.last_read_at = utcnow()
+    note_read(session, novel)
     session.commit()
     return {"ok": True}
 

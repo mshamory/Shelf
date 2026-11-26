@@ -5,9 +5,11 @@
     <input type="search" name="q" value="{{ q }}" placeholder="Filter by title, author, genre, tag…" aria-label="Filter library">
     <select name="sort" aria-label="Sort" onchange="this.form.submit()">
       <option value="recent" {% if sort == 'recent' %}selected{% endif %}>Recently read</option>
+      <option value="updated" {% if sort == 'updated' %}selected{% endif %}>Recently updated</option>
       <option value="added" {% if sort == 'added' %}selected{% endif %}>Recently added</option>
       <option value="title" {% if sort == 'title' %}selected{% endif %}>Title</option>
     </select>
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
   </form>
   <div class="actions">
     <form method="post" action="/scan">
@@ -50,25 +52,42 @@
 </details>
 {% endif %}
 
+{% if status_counts.values()|sum or status %}
+<nav class="status-filter" aria-label="Reading lists">
+  <a href="/?{{ {'q': q, 'sort': sort}|urlencode }}" {% if not status %}aria-current="page"{% endif %}>All</a>
+  {% for key, label in statuses.items() %}{% if status_counts[key] or status == key %}
+  <a href="/?{{ {'q': q, 'sort': sort, 'status': key}|urlencode }}" {% if status == key %}aria-current="page"{% endif %}>{{ label }} <span>{{ status_counts[key] }}</span></a>
+  {% endif %}{% endfor %}
+  {% if status_counts.new or status == 'new' %}
+  <a href="/?{{ {'q': q, 'sort': sort, 'status': 'new'}|urlencode }}" class="has-new" {% if status == 'new' %}aria-current="page"{% endif %}>New chapters <span>{{ status_counts.new }}</span></a>
+  {% endif %}
+</nav>
+{% endif %}
+
 {% if novels %}
 <div class="grid-novels">
   {% for novel in novels %}
   <article class="novel-card">
-    <a href="/novel/{{ novel.id }}" class="cover-link">{% include "_cover.html" %}</a>
+    <a href="/novel/{{ novel.id }}" class="cover-link">{% include "_cover.html" %}
+      {% if new.get(novel.id) %}<span class="new-badge">{{ new[novel.id] }} new</span>{% endif %}</a>
     <div class="card-body">
       <a href="/novel/{{ novel.id }}" class="card-title">{{ novel.title }}</a>
       {% if novel.authors %}<small class="muted">{{ novel.authors|join(', ') }}</small>{% endif %}
       <small class="muted">{{ counts.get(novel.id, 0) }} chapters
         {% if missing.get(novel.id) %}· <span class="warn" title="Gaps in chapter numbering">{{ missing[novel.id] }} missing</span>{% endif %}
-        {% if novel.import_error %}· <span class="warn">{{ novel.import_error }}</span>{% endif %}</small>
+        {% if novel.import_error %}· <span class="warn">{{ novel.import_error }}</span>{% endif %}
+        {% if novel.reading_status and not status %}· {{ statuses[novel.reading_status] }}{% endif %}</small>
       {% set p = progress.get(novel.id) %}
       {% if p %}
         <a href="/chapter/{{ p.id }}" class="continue">Continue: {{ p.title }}</a>
+        <small class="muted">{% if left.get(novel.id) %}{{ left[novel.id] }} chapter{{ 's' if left[novel.id] != 1 }} left{% else %}Caught up{% endif %}</small>
       {% endif %}
     </div>
   </article>
   {% endfor %}
 </div>
+{% elif status %}
+<p>No novels {% if q %}matching “{{ q }}” {% endif %}{% if status == 'new' %}have new chapters{% else %}are marked {{ statuses[status] }}{% endif %}. <a href="/?{{ {'q': q, 'sort': sort}|urlencode }}">Show all</a></p>
 {% elif q %}
 <p>No novels match “{{ q }}”.</p>
 {% else %}

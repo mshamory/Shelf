@@ -194,3 +194,19 @@ body { background: var(--pico-background-color); }
 .glossary-description { white-space: pre-line; }
 .glossary-edit summary { font-size: .85rem; }
 .glossary-add { margin-bottom: 1.5rem; }
+
+/* reading lists and new chapters */
+.status-filter { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: .4rem; margin: -.5rem 0 1.25rem; }
+.status-filter a { margin: 0; }
+.status-filter a { padding: .25rem .75rem; border-radius: 2rem; border: 1px solid var(--pico-muted-border-color);
+  text-decoration: none; font-size: .85rem; color: var(--pico-color); }
+.status-filter a span { color: var(--pico-muted-color); margin-left: .15rem; }
+.status-filter a[aria-current="page"] { background: var(--pico-primary-background); border-color: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+.status-filter a[aria-current="page"] span { color: inherit; opacity: .8; }
+.cover-link { position: relative; display: block; }
+.new-badge { position: absolute; top: .5rem; right: .5rem; padding: .1rem .55rem; border-radius: 2rem;
+  background: #c0392b; color: #fff; font-size: .75rem; font-weight: 700; box-shadow: 0 1px 4px rgb(0 0 0 / .3); }
+.new-note { color: #c0392b; }
+.reading-status { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 0 0 1rem; }
+.reading-status label { margin: 0; color: var(--pico-muted-color); }
+.reading-status select { width: auto; margin: 0; padding-block: .3rem; }

@@ -52,6 +52,7 @@ from .novelupdates import (
     looks_like_series_page,
     parse_series_page,
 )
+from .reading import note_added, shown_urls
 from .rendered import chapters_from_page_texts, looks_like_prose
 from .rsc import RSC_MIME
 from .rsc import page_url as rsc_page_url
@@ -738,6 +739,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
 
     # Keep reading progress and hidden flags across re-imports by matching chapter URLs.
     old = {c.url: c for c in novel.chapters}
+    shown_before = shown_urls(novel.chapters)
     last_url = next((c.url for c in novel.chapters if c.id == novel.last_chapter_id), None)
     # Chapters sent from the browser stay, and win over archive chapters with their URL or
     # number.
@@ -805,6 +807,7 @@ def import_wacz(session: Session, path: Path, force: bool = False) -> Novel:
         resequence(new_chapters)
     session.flush()
     move_versions(session, dropped, {_url_key(c.url): c.id for c in new_chapters})
+    note_added(novel, shown_before, shown_urls(new_chapters))
     novel.last_chapter_id = next((c.id for c in new_chapters if c.url == last_url), None)
     if novel.last_chapter_id is None:
         novel.last_position = 0.0

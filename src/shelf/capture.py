@@ -259,6 +259,8 @@ def add_chapter(session: Session, novel: Novel, url: str, html: str, title: str 
         filled = set(covered(ch.number, ch.number_end))
         novel.unreadable_chapters = {k: v for k, v in novel.unreadable_chapters.items()
                                      if int(k) not in filled}
+    if action == "added" and not ch.hidden:
+        novel.updated_at = utcnow()
     novel.import_error = None
     session.commit()
     session.refresh(ch)

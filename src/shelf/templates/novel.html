@@ -24,6 +24,16 @@
       {% endif %}
     </p>
 
+    <form method="post" action="/novel/{{ novel.id }}/status" class="reading-status">
+      <label for="reading-status">My list</label>
+      <select id="reading-status" name="status" onchange="this.form.requestSubmit()">
+        <option value="">Not on a list</option>
+        {% for key, label in statuses.items() %}<option value="{{ key }}" {% if novel.reading_status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <noscript><button type="submit" class="small">Save</button></noscript>
+      {% if last %}<span class="muted">{% if new %}<strong class="new-note">{{ new }} new chapter{{ 's' if new != 1 }}</strong> since you last read · {% endif %}{% if left %}{{ left }} chapter{{ 's' if left != 1 }} left{% else %}Caught up{% endif %}</span>{% endif %}
+    </form>
+
     <dl class="facts">
       {% if novel.novel_type %}<dt>Type</dt><dd>{{ novel.novel_type }}</dd>{% endif %}
       {% if novel.language %}<dt>Language</dt><dd>{{ novel.language }}</dd>{% endif %}

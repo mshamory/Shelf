@@ -50,6 +50,9 @@ class Novel(SQLModel, table=True):
     last_chapter_id: int | None = None
     last_position: float = 0.0  # scroll fraction within the chapter
     last_read_at: datetime | None = None
+    reading_status: str | None = None  # a key of reading.STATUSES; None: not on a list
+    left_when_read: int | None = None  # shown chapters after your place when you last read
+    updated_at: datetime | None = None  # when an import or capture last added a chapter
 
     chapters: list["Chapter"] = Relationship(
         back_populates="novel",
@@ -234,6 +237,17 @@ def init_db() -> None:
                 "UPDATE chapter SET auto_title = title, auto_number = number, "
                 "auto_season = season, auto_season_label = season_label"
             )
+        if "novel.reading_status" in added:
+            # Novels you had started are the ones you're reading.
+            conn.exec_driver_sql(
+                "UPDATE novel SET reading_status = 'reading' WHERE last_chapter_id IS NOT NULL")
+        if "novel.left_when_read" in added:
+            # What's after your place now is known; anything added from here on is new.
+            conn.exec_driver_sql(
+                "UPDATE novel SET left_when_read = (SELECT count(*) FROM chapter c, chapter l "
+                "WHERE l.id = novel.last_chapter_id AND c.novel_id = novel.id "
+                "AND c.hidden = 0 AND c.position > l.position) "
+                "WHERE last_chapter_id IS NOT NULL")
 
 
 def get_session():
