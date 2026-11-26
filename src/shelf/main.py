@@ -20,7 +20,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, opds
+from . import __version__, auth, opds
 from .capture import (
     CaptureError,
     add_chapter,
@@ -96,9 +96,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Shelf", version=__version__, lifespan=lifespan)
+# Sign-in, when a password or login proxy is set up. Inside CORS, so a 401 still tells the
+# extension what went wrong.
+app.add_middleware(auth.AuthMiddleware)
 # The browser extension calls the API from its own origin.
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"^(moz|chrome|safari-web)-extension://.+$",
-                   allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                   allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Authorization"])
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 templates.env.globals.update(version=__version__, settings=settings, has_archive=has_archive)
@@ -1032,6 +1035,55 @@ def snippet(ch: Chapter, q: str, width: int = 90) -> str:
     return ("…" if start else "") + text[start : i + len(q) + width] + "…"
 
 
+# -- signing in ------------------------------------------------------------
+
+
+def signed_in_as(request: Request) -> tuple[str, str | None] | None:
+    """How the request signed in, ("cookie" | "basic" | "header", name), or None."""
+    return request.scope.get("state", {}).get("auth")
+
+
+templates.env.globals["signed_in_as"] = signed_in_as
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    if not auth.password():
+        return RedirectResponse(safe_next(next, "/"), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": safe_next(next, "/")})
+
+
+@app.post("/login")
+def login(request: Request, password: Annotated[str, Form()] = "",
+          next: Annotated[str, Form()] = "/"):
+    target = safe_next(next, "/")
+    if not auth.password():
+        return RedirectResponse(target, status_code=303)
+    addr = request.client.host if request.client else "?"
+    if auth.too_many_failures(addr):
+        return templates.TemplateResponse(
+            request, "login.html", {"next": target, "error":
+                                    "Too many wrong passwords. Try again in a few minutes."},
+            status_code=429)
+    if not auth.check_password(password):
+        auth.note_failure(addr)
+        return templates.TemplateResponse(
+            request, "login.html", {"next": target, "error": "That's not the password."},
+            status_code=401)
+    response = RedirectResponse(target, status_code=303)
+    response.set_cookie(auth.COOKIE, auth.login_cookie(), max_age=auth.COOKIE_AGE,
+                        path=request.scope.get("root_path") or "/", httponly=True,
+                        samesite="lax", secure=request.url.scheme == "https")
+    return response
+
+
+@app.post("/logout")
+def logout(request: Request):
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.COOKIE, path=request.scope.get("root_path") or "/")
+    return response
+
+
 @app.get("/healthz")
 def healthz():
     return JSONResponse({"ok": True, "version": __version__})
@@ -1079,8 +1131,8 @@ def cover(name: str):
 
 # -- browser extension API -------------------------------------------------
 #
-# The Shelf Capture extension sends pages exactly as the browser displayed them. Shelf has
-# no authentication (see README), so these endpoints are as open as the rest of the app.
+# The Shelf Capture extension sends pages exactly as the browser displayed them. With a
+# password set, it sends the password with HTTP Basic auth (see auth.py).
 
 
 class PagePayload(BaseModel):

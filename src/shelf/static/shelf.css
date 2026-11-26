@@ -210,3 +210,12 @@ body { background: var(--pico-background-color); }
 .reading-status { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 0 0 1rem; }
 .reading-status label { margin: 0; color: var(--pico-muted-color); }
 .reading-status select { width: auto; margin: 0; padding-block: .3rem; }
+
+/* Sign-in */
+.login { max-width: 24rem; margin: 3rem auto; }
+.login h1 { font-size: 1.4rem; }
+.inline-form { display: inline; margin: 0; }
+.link-button {
+  display: inline; width: auto; margin: 0; padding: 0; border: 0; background: none;
+  color: var(--pico-primary); font-size: inherit; text-decoration: underline; cursor: pointer;
+}

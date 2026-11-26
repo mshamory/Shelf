@@ -4,7 +4,7 @@ Each novel is offered as the EPUB Shelf exports (see export.py), so a reader app
 chapters as Shelf shows them. The catalog has feeds for the whole library, recently updated
 novels, novels with new chapters and each reading list, and an OpenSearch search.
 
-Shelf has no authentication, so neither does the catalog (see README)."""
+With a password set, reader apps sign in with HTTP Basic auth (see auth.py)."""
 
 from __future__ import annotations
 

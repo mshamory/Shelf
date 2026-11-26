@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shelf Capture",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Send the page you're reading, as displayed, to your Shelf library.",
   "action": {
     "default_title": "Send to Shelf",

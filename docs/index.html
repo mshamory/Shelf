@@ -312,6 +312,9 @@ uv run shelf     <span class="c"># http://localhost:8000, uses ./library and ./d
           <tr><td><code>SHELF_ALLOW_UPLOADS</code></td><td><code>true</code></td></tr>
           <tr><td><code>SHELF_FETCH_COVERS</code></td><td><code>true</code></td></tr>
           <tr><td><code>SHELF_PORT</code></td><td><code>8000</code></td></tr>
+          <tr><td><code>SHELF_PASSWORD</code></td><td>none</td></tr>
+          <tr><td><code>SHELF_AUTH_HEADER</code></td><td>none</td></tr>
+          <tr><td><code>SHELF_TRUSTED_PROXIES</code></td><td><code>127.0.0.1,::1</code></td></tr>
         </table></div>
         <p style="color:var(--muted);font-size:.93rem">More in the <a href="https://github.com/mshamory/Shelf#running-with-docker">README</a>.</p>
       </div>
@@ -329,7 +332,7 @@ uv run shelf     <span class="c"># http://localhost:8000, uses ./library and ./d
       </div>
       <div>
         <h3>Before you expose it</h3>
-        <div class="note"><strong>Shelf has no login.</strong> Run it on a network you trust, or put it behind a reverse proxy that requires one.</div>
+        <div class="note"><strong>Turn on sign-in.</strong> Shelf is open by default. Set <code>SHELF_PASSWORD</code> to require a password, or let a login proxy such as Authelia sign you in with <code>SHELF_AUTH_HEADER</code>.</div>
         <div class="note" style="margin-top:1rem"><strong>Shelf respects what sites protect.</strong> It doesn't get around bot protection or decrypt protected chapters, and it won't open EPUBs with DRM. It works with what you've saved.</div>
       </div>
     </div>

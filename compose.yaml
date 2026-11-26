@@ -15,3 +15,8 @@ services:
       SHELF_SCAN_ON_STARTUP: "true"
       SHELF_ALLOW_UPLOADS: "true"
       SHELF_FETCH_COVERS: "true"
+      # Require a password (see "Signing in" in the README).
+      # SHELF_PASSWORD: "change me"
+      # Or let a login proxy sign you in: the header it sets, and where it connects from.
+      # SHELF_AUTH_HEADER: "Remote-User"
+      # SHELF_TRUSTED_PROXIES: "172.16.0.0/12"

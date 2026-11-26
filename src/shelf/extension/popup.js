@@ -5,6 +5,7 @@ const DEFAULT_SERVER = "http://localhost:8000";
 const NEW = "new";
 
 let server = DEFAULT_SERVER;
+let password = ""; // Shelf's password, if it has one (sent with HTTP Basic auth)
 let page = null; // what capture.js returned
 let tabId = null;
 let previewSeq = 0;
@@ -27,18 +28,30 @@ function setStatus(text, { error = false, link = null } = {}) {
   }
 }
 
+function authHeaders() {
+  if (!password) return {};
+  const bytes = new TextEncoder().encode(":" + password);
+  return { Authorization: "Basic " + btoa(String.fromCharCode(...bytes)) };
+}
+
 async function call(path, body) {
   let resp;
   try {
-    resp = await fetch(server + path, body === undefined ? {} : {
+    resp = await fetch(server + path, body === undefined ? { headers: authHeaders() } : {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
   } catch (e) {
     throw new Error(`Can't reach Shelf at ${server}. Check the address in Settings.`);
   }
   const data = await resp.json().catch(() => ({}));
+  if (resp.status === 401) {
+    throw new Error(password ? "Shelf didn't accept the password. Check it in Settings."
+      : data.detail === "Shelf needs its password."
+        ? "Shelf needs its password: enter it in Settings."
+        : `Shelf answered 401: ${data.detail || "not signed in"}`);
+  }
   if (!resp.ok) throw new Error(data.detail || `Shelf answered ${resp.status}`);
   return data;
 }
@@ -366,15 +379,18 @@ async function openedQuick() {
 function showSettings(show) {
   $("settings").hidden = !show;
   $("server").value = server;
+  $("password").value = password;
 }
 
 $("toggle-settings").addEventListener("click", () => showSettings($("settings").hidden));
 $("settings").addEventListener("submit", async (e) => {
   e.preventDefault();
   server = $("server").value.trim().replace(/\/+$/, "") || DEFAULT_SERVER;
-  await api.storage.local.set({ server });
+  password = $("password").value;
+  await api.storage.local.set({ server, password });
   try {
     const res = await call("/healthz");
+    await call("/api/novels"); // checks the password
     $("settings-status").textContent = `Connected (Shelf ${res.version})`;
     location.reload();
   } catch (err) {
@@ -383,7 +399,7 @@ $("settings").addEventListener("submit", async (e) => {
 });
 
 async function main() {
-  server = (await api.storage.local.get({ server: DEFAULT_SERVER })).server;
+  ({ server, password } = await api.storage.local.get({ server: DEFAULT_SERVER, password: "" }));
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   tabId = tab?.id;
   $("page-title").textContent = tab?.title || "";

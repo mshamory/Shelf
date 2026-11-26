@@ -40,7 +40,11 @@
     {% block content %}{% endblock %}
   </main>
   {% block footer %}
-  <footer class="container"><small>Shelf {{ version }} · <a href="/extension.zip" title="Browser extension that sends pages as displayed to Shelf">Browser extension</a> · <a href="/opds" title="Add this address to an e-reader app (KOReader, Thorium, Moon+ Reader...) to download novels as EPUBs">OPDS catalog</a></small></footer>
+  <footer class="container"><small>Shelf {{ version }} · <a href="/extension.zip" title="Browser extension that sends pages as displayed to Shelf">Browser extension</a> · <a href="/opds" title="Add this address to an e-reader app (KOReader, Thorium, Moon+ Reader...) to download novels as EPUBs">OPDS catalog</a>
+    {%- set who = signed_in_as(request) %}
+    {%- if who and who[0] == "header" %} · Signed in as {{ who[1] }}
+    {%- elif who and who[0] == "cookie" %} · <form action="/logout" method="post" class="inline-form"><button type="submit" class="link-button">Sign out</button></form>
+    {%- endif %}</small></footer>
   {% endblock %}
   {% block scripts %}{% endblock %}
 </body>

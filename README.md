@@ -122,7 +122,7 @@ To install, download the extension from the link at the bottom of any Shelf page
   Developer Edition with `xpinstall.signatures.required` set to `false`.
 
 Open the extension (or press Alt+Shift+S) and set Shelf's address under *Settings*. The default
-is `http://localhost:8000`. If your browser refuses a plain-HTTP address on your network,
+is `http://localhost:8000`. If Shelf has a password, enter it there too. If your browser refuses a plain-HTTP address on your network,
 serve Shelf over HTTPS through a reverse proxy.
 
 ### Saved web pages
@@ -187,12 +187,42 @@ Then open <http://localhost:8000>. The library is scanned at startup and wheneve
 | `SHELF_ALLOW_UPLOADS`  | `true`     | Allow uploading WACZ/EPUB files in the web UI     |
 | `SHELF_FETCH_COVERS`   | `true`     | Download cover images that aren't in the archive  |
 | `SHELF_PORT`           | `8000`     | Port to listen on                                 |
+| `SHELF_PASSWORD`       |            | Require this password (see [Signing in](#signing-in)) |
+| `SHELF_AUTH_HEADER`    |            | Header a login proxy puts your name in, e.g. `Remote-User` |
+| `SHELF_TRUSTED_PROXIES`| `127.0.0.1,::1` | Addresses or networks of your reverse proxy   |
 
 The container runs as UID 1000. Make sure the mounted folders are writable by that user, or
 mount `library` read-only and set `SHELF_ALLOW_UPLOADS=false`.
 
-Shelf has no authentication. Run it on a trusted network or put it behind a reverse proxy
-that handles authentication.
+### Signing in
+
+Out of the box, anyone who can reach Shelf can use it. Run it on a network you trust, or
+turn on one of these, or both:
+
+- **A password.** Set `SHELF_PASSWORD`, and Shelf asks for it on a sign-in page. You stay
+  signed in on that browser for 400 days, or until you choose **Sign out** at the bottom of
+  a page. Changing the password signs every browser out. E-reader apps and the browser
+  extension send the password instead: give it to the app (any user name will do), and to
+  the extension under *Settings*.
+- **A login proxy.** If a reverse proxy such as Authelia, Authentik or oauth2-proxy signs you
+  in, set `SHELF_AUTH_HEADER` to the header it puts your name in (often `Remote-User`). Set
+  `SHELF_TRUSTED_PROXIES` to the address the proxy connects to Shelf from. The default is
+  the same machine; for a proxy in another Docker container, use its address or the
+  network's range, such as `172.16.0.0/12`. Shelf ignores the header from any other address,
+  since anyone could send it.
+
+  E-reader apps and the extension usually can't get past a login page. To use them, also
+  set `SHELF_PASSWORD`, and have the proxy let through requests that carry an
+  `Authorization` header (or the paths `/opds`, `/api/`, `/covers/` and
+  `/novel/*/export.epub`). Shelf checks the password on those itself.
+
+Shelf also uses `SHELF_TRUSTED_PROXIES` to decide whose `X-Forwarded-For` and
+`X-Forwarded-Proto` headers to believe, so behind a proxy that serves https, set it even
+without a login proxy. The OPDS catalog's links then start with `https://`.
+
+Wrong passwords are limited to 10 every 15 minutes from one address. Shelf keeps the key
+that signs its sign-in cookies in `secret_key` in the data folder; deleting it also signs
+every browser out.
 
 ## Releases
 
@@ -267,8 +297,8 @@ You can also search by title, other name, author, genre or tag. Each novel downl
 the same EPUB that **Download EPUB** makes, so it has the chapters as they are now.
 Novels with no chapters are left out.
 
-Like the rest of Shelf, the catalog has no password. Anyone who can reach Shelf can
-download your novels from it.
+If Shelf has a password (see [Signing in](#signing-in)), give it to the app with any user
+name. Without one, anyone who can reach Shelf can download your novels from the catalog.
 
 ## How an EPUB becomes a novel
 
