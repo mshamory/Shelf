@@ -77,6 +77,8 @@ the browser can be added too.
   lists those novels. Each card shows how many chapters are left after your place, and
   *Recently updated* sorts by when chapters were last added. Hiding, showing or renumbering
   chapters yourself doesn't count as new.
+- **OPDS catalog**: browse the library from an e-reader app and download novels as EPUBs
+  (see [OPDS catalog](#opds-catalog)).
 
 ### Browser extension
 
@@ -249,6 +251,24 @@ rules applied, a page for each part or volume with its chapters under it in the 
 and the cover, title, authors, genres and description. Images Shelf has a copy of (from the
 archive, the e-book or the browser extension) go inside the book; others are left out, as
 in the reader.
+
+### OPDS catalog
+
+E-reader apps that read OPDS catalogs (KOReader, Thorium Reader, Moon+ Reader, Librera,
+Panels and others) can browse Shelf and download novels. Add
+`http://<your-shelf-address>/opds` as a catalog in the app. It lists:
+
+- **All novels**, by title
+- **Recently updated**: novels with chapters added lately first
+- **New chapters**: novels with chapters added since you last read them
+- each of your reading lists that has novels on it
+
+You can also search by title, other name, author, genre or tag. Each novel downloads as
+the same EPUB that **Download EPUB** makes, so it has the chapters as they are now.
+Novels with no chapters are left out.
+
+Like the rest of Shelf, the catalog has no password. Anyone who can reach Shelf can
+download your novels from it.
 
 ## How an EPUB becomes a novel
 

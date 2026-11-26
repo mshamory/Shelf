@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, col, select
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__
+from . import __version__, opds
 from .capture import (
     CaptureError,
     add_chapter,
@@ -178,26 +178,31 @@ def novel_gaps(session: Session, novel_id: int | None = None):
 # -- library ---------------------------------------------------------------
 
 
-@app.get("/", response_class=HTMLResponse)
-def library(request: Request, session: SessionDep, q: str = "", sort: str = "recent",
-            status: str = ""):
-    counts = dict(
+def matches(novel: Novel, q: str) -> bool:
+    """The library's text filter: title, other names, authors, genres or tags."""
+    return q.lower() in " ".join([novel.title, novel.archive_title, *novel.alt_names,
+                                  *novel.authors, *novel.genres, *novel.tags]).lower()
+
+
+def shown_counts(session: Session) -> dict[int, int]:
+    """Shown chapters per novel."""
+    return dict(
         session.exec(
             select(Chapter.novel_id, func.count(Chapter.id))
             .where(Chapter.hidden == False)  # noqa: E712
             .group_by(Chapter.novel_id)
         ).all()
     )
+
+
+@app.get("/", response_class=HTMLResponse)
+def library(request: Request, session: SessionDep, q: str = "", sort: str = "recent",
+            status: str = ""):
+    counts = shown_counts(session)
     missing = {nid: missing_count(g) for nid, g in novel_gaps(session).items()}
     novels = list(session.exec(select(Novel)).all())
     if q:
-        needle = q.lower()
-        novels = [
-            n for n in novels
-            if needle in " ".join(
-                [n.title, n.archive_title, *n.alt_names, *n.authors, *n.genres, *n.tags]
-            ).lower()
-        ]
+        novels = [n for n in novels if matches(n, q)]
     left = chapters_left(session)
     new = {n.id: k for n in novels if (k := new_count(n, left.get(n.id, 0)))}
     # How many novels each filter shows (within the text filter), for the filter links.
@@ -1253,6 +1258,101 @@ def export_novel(session: SessionDep, novel_id: int):
     return FileResponse(path, media_type="application/epub+zip",
                         filename=export_filename(novel),
                         background=BackgroundTask(path.unlink, missing_ok=True))
+
+
+# -- OPDS catalog ----------------------------------------------------------
+#
+# For e-reader apps: the library as OPDS feeds, each novel offered as its EPUB export.
+
+
+def _opds_response(body: bytes, kind: str) -> Response:
+    return Response(body, media_type=kind + ";charset=utf-8")
+
+
+def _opds_url(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return lambda path: base + path
+
+
+def _catalog_novels(session: Session) -> tuple[list[Novel], dict[int, int]]:
+    """Novels with chapters to read (an empty EPUB is no use), most recently updated first."""
+    counts = shown_counts(session)
+    novels = [n for n in session.exec(select(Novel)).all() if counts.get(n.id)]
+    novels.sort(key=opds.novel_updated, reverse=True)
+    return novels, counts
+
+
+def _new_novels(session: Session, novels: list[Novel]) -> list[Novel]:
+    left = chapters_left(session)
+    return [n for n in novels if new_count(n, left.get(n.id, 0))]
+
+
+@app.get("/opds")
+def opds_root(request: Request, session: SessionDep):
+    novels, _ = _catalog_novels(session)
+    sections = [
+        ("/opds/all", "All novels", "Every novel, by title", len(novels)),
+        ("/opds/updated", "Recently updated", "Novels with chapters added lately",
+         len(novels)),
+        ("/opds/new", "New chapters", "Novels with chapters since you last read",
+         len(_new_novels(session, novels))),
+    ]
+    for key, label in STATUSES.items():
+        count = sum(1 for n in novels if n.reading_status == key)
+        if count:
+            sections.append((f"/opds/list/{key}", label, f"Your {label} list", count))
+    updated = opds.novel_updated(novels[0]) if novels else None
+    return _opds_response(opds.navigation(_opds_url(request), sections, updated),
+                          opds.NAVIGATION)
+
+
+@app.get("/opds/all")
+def opds_all(request: Request, session: SessionDep, page: int = 1):
+    novels, counts = _catalog_novels(session)
+    novels.sort(key=lambda n: (n.title or n.archive_title).lower())
+    return _opds_response(opds.acquisition(_opds_url(request), "/opds/all", "All novels",
+                                           novels, counts, page), opds.ACQUISITION)
+
+
+@app.get("/opds/updated")
+def opds_updated(request: Request, session: SessionDep, page: int = 1):
+    novels, counts = _catalog_novels(session)
+    return _opds_response(opds.acquisition(_opds_url(request), "/opds/updated",
+                                           "Recently updated", novels, counts, page),
+                          opds.ACQUISITION)
+
+
+@app.get("/opds/new")
+def opds_new(request: Request, session: SessionDep, page: int = 1):
+    novels, counts = _catalog_novels(session)
+    return _opds_response(opds.acquisition(_opds_url(request), "/opds/new", "New chapters",
+                                           _new_novels(session, novels), counts, page),
+                          opds.ACQUISITION)
+
+
+@app.get("/opds/list/{status}")
+def opds_list(request: Request, session: SessionDep, status: str, page: int = 1):
+    if status not in STATUSES:
+        raise HTTPException(404)
+    novels, counts = _catalog_novels(session)
+    novels = [n for n in novels if n.reading_status == status]
+    return _opds_response(opds.acquisition(_opds_url(request), f"/opds/list/{status}",
+                                           STATUSES[status], novels, counts, page),
+                          opds.ACQUISITION)
+
+
+@app.get("/opds/search.xml")
+def opds_search_description(request: Request):
+    return _opds_response(opds.opensearch(_opds_url(request)), opds.OPENSEARCH)
+
+
+@app.get("/opds/search")
+def opds_search(request: Request, session: SessionDep, q: str = "", page: int = 1):
+    novels, counts = _catalog_novels(session)
+    novels = [n for n in novels if matches(n, q)] if q.strip() else []
+    return _opds_response(opds.acquisition(_opds_url(request), "/opds/search",
+                                           f"Search: {q}", novels, counts, page, query=q),
+                          opds.ACQUISITION)
 
 
 @app.post("/novel/{novel_id}/images/fetch")
