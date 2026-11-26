@@ -1084,6 +1084,35 @@ def logout(request: Request):
     return response
 
 
+# -- installing Shelf as an app (PWA) ---------------------------------------
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    icons = [
+        {"src": asset("icons/icon-192.png"), "sizes": "192x192", "type": "image/png"},
+        {"src": asset("icons/icon-512.png"), "sizes": "512x512", "type": "image/png"},
+        {"src": asset("icons/maskable-512.png"), "sizes": "512x512", "type": "image/png",
+         "purpose": "maskable"},
+    ]
+    return JSONResponse(
+        {"id": "/", "name": "Shelf", "short_name": "Shelf",
+         "description": "Your web-novel archives and e-books, in one reader.",
+         "start_url": "/", "scope": "/", "display": "standalone",
+         "background_color": "#ffffff", "theme_color": "#182c63", "icons": icons},
+        media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/sw.js")
+def service_worker():
+    """The service worker, at the root so it covers every page. Its cache names change
+    whenever it or the offline page does, so browsers pick up a new one."""
+    stamp = "-".join(asset(name).rsplit("=", 1)[1] for name in ("sw.js", "offline.html"))
+    script = (HERE / "static" / "sw.js").read_text().replace("__VERSION__", stamp)
+    return Response(script, media_type="text/javascript",
+                    headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/healthz")
 def healthz():
     return JSONResponse({"ok": True, "version": __version__})

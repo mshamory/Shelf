@@ -1,6 +1,6 @@
 (() => {
   const KEY = "shelf.reader";
-  const DEFAULTS = { theme: "auto", font: "serif", size: 19, leading: 1.7, width: 40, align: "left", gloss: "all" };
+  const DEFAULTS = { theme: "auto", font: "serif", size: 19, leading: 1.7, width: 40, align: "left", gloss: "all", tap: "page" };
   const root = document.documentElement;
   const form = document.getElementById("settings");
   const article = document.getElementById("chapter");
@@ -44,6 +44,58 @@
     if (e.key === "ArrowLeft" && link("prev")) location.href = link("prev").href;
     if (e.key === "ArrowRight" && link("next")) location.href = link("next").href;
   });
+
+  // ---- touch: tap the edges to move on, the bar hides while you read ----------------
+  // Only taps (not mouse clicks): the left or right 30% of the screen turns the page (or
+  // changes chapter, per the settings); the middle shows or hides the bar.
+  const readerBar = document.querySelector(".reader-bar");
+  const touchScreen = matchMedia("(pointer: coarse)");
+  const smooth = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+  const maxScroll = () => document.documentElement.scrollHeight - innerHeight;
+  const hideBar = (hide) => readerBar.classList.toggle("bar-hidden", hide && form.hidden);
+  const INTERACTIVE = "a, button, input, select, textarea, label, summary, dialog, [tabindex], " +
+    ".gloss, .gloss-pop, .reader-bar, .trim-fab, .chapter-nav, .gap-notice";
+
+  function goChapter(dir) {
+    const link = document.querySelector(`a[rel="${dir > 0 ? "next" : "prev"}"]`);
+    // Going back from the top of a chapter lands at the end of the one before.
+    if (link) location.href = link.href + (dir < 0 && settings.tap === "page" ? "#end" : "");
+  }
+  function turnPage(dir) {
+    const overlap = 2 * (parseFloat(getComputedStyle(chapterBody).lineHeight) || 30);
+    if (dir > 0) {
+      if (scrollY >= maxScroll() - 2) return goChapter(1);
+      hideBar(true);
+      const progressLine = 3; // what stays of the bar when it's hidden
+      scrollBy({ top: innerHeight - progressLine - overlap, behavior: smooth() });
+    } else {
+      if (scrollY <= 2) return goChapter(-1);
+      scrollBy({ top: -(innerHeight - readerBar.offsetHeight - overlap), behavior: smooth() });
+    }
+  }
+
+  let pointer = "mouse";
+  addEventListener("pointerdown", (e) => { pointer = e.pointerType; }, { capture: true, passive: true });
+  // In the capture phase, before the glossary's own click handlers: a tap that closes the
+  // glossary popup or ends a selection does just that.
+  document.addEventListener("click", (e) => {
+    if (pointer !== "touch" || e.target.closest(INTERACTIVE)) return;
+    if (!pop.hidden || getSelection().toString() || !form.hidden) return;
+    const x = e.clientX / innerWidth;
+    if (x > 0.3 && x < 0.7) return hideBar(!readerBar.classList.contains("bar-hidden"));
+    if (settings.tap === "off") return;
+    const dir = x < 0.3 ? -1 : 1;
+    if (settings.tap === "chapter") goChapter(dir); else turnPage(dir);
+  }, { capture: true });
+
+  let lastY = scrollY;
+  addEventListener("scroll", () => {
+    const dy = scrollY - lastY;
+    if (Math.abs(dy) < 6) return;
+    lastY = scrollY;
+    if (touchScreen.matches) hideBar(dy > 0 && scrollY > readerBar.offsetHeight);
+  }, { passive: true });
+  toggle.addEventListener("click", () => hideBar(false));
 
   // ---- trim selected text, or add it to the glossary --------------------------
   const fab = document.getElementById("selection-actions");
@@ -182,11 +234,31 @@
   }, { passive: true });
   addEventListener("pagehide", () => navigator.sendBeacon?.("/api/progress", new Blob([body()], { type: "application/json" })));
 
-  // Restore position when resuming, otherwise mark this chapter as current.
+  // Restore position when resuming (or go to the end, coming back from the next chapter),
+  // otherwise mark this chapter as current.
   const resume = Number(article.dataset.resume || 0);
-  addEventListener("load", () => {
-    if (resume > 0 && resume < 1) scrollTo(0, resume * (document.documentElement.scrollHeight - innerHeight));
-    bar.style.width = (fraction() * 100).toFixed(1) + "%";
-    send();
+  const toEnd = location.hash === "#end";
+  if (toEnd) history.replaceState(null, "", location.pathname + location.search);
+  // A chapter loaded ahead in the background (see reader.html) isn't being read yet: it
+  // saves your place when it's shown.
+  const shown = () => new Promise((resolve) => {
+    if (document.prerendering) document.addEventListener("prerenderingchange", resolve, { once: true });
+    else resolve();
   });
+  addEventListener("load", async () => {
+    if (toEnd) scrollTo(0, maxScroll());
+    else if (resume > 0 && resume < 1) scrollTo(0, resume * maxScroll());
+    bar.style.width = (fraction() * 100).toFixed(1) + "%";
+    await shown();
+    await send();
+    keepNext();
+  });
+
+  // Browsers that don't load the next chapter ahead themselves ask Shelf's service worker
+  // to (see sw.js), once this chapter's place is saved.
+  function keepNext() {
+    const next = article.dataset.next;
+    if (!next || HTMLScriptElement.supports?.("speculationrules")) return;
+    navigator.serviceWorker?.controller?.postMessage({ keep: next });
+  }
 })();

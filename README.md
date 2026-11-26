@@ -54,6 +54,11 @@ the browser can be added too.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment
   settings, ←/→ keys for chapter navigation, and progress saved per novel (chapter and
   scroll position).
+- **Reading on a phone**: tap the right or left edge of the screen to turn a page; at the end
+  of a chapter, the next tap opens the next one (or set taps to change chapter, or do nothing,
+  under **Aa**). Tapping the middle shows or hides the top bar, which also hides as you scroll
+  down. The next chapter is loaded ahead, so moving on is instant. See
+  [Installing Shelf as an app](#installing-shelf-as-an-app).
 - **Chapter editor**: **Edit text** under a chapter opens its text for fixing typos or
   removing what trim rules can't (select and delete, *Delete paragraph*, bold/italic, or
   the HTML itself). The text before each save stays in the chapter's history, where
@@ -281,6 +286,23 @@ rules applied, a page for each part or volume with its chapters under it in the 
 and the cover, title, authors, genres and description. Images Shelf has a copy of (from the
 archive, the e-book or the browser extension) go inside the book; others are left out, as
 in the reader.
+
+### Installing Shelf as an app
+
+Shelf can be installed as an app from the browser on a phone or computer: in Chrome or
+Edge, *Install app* or *Add to Home screen* in the menu; in Safari on an iPhone or iPad,
+*Share* → *Add to Home Screen*. It then opens full screen, without the browser's address bar.
+
+Browsers allow this only over https, or on `localhost`, so on your network serve Shelf through
+a reverse proxy with a certificate. The same goes for keeping chapters for offline reading:
+
+- The last 30 chapters you opened stay readable without a connection. When Shelf can't be
+  reached, its pages say so and list those chapters. Your place in them isn't saved
+  while offline.
+- In browsers that don't load the next chapter ahead by themselves (Firefox, Safari, Brave),
+  Shelf's service worker fetches it instead. A copy fetched ahead is used only within 30
+  minutes, and not after you send a form (a trim rule or a hidden chapter could change it).
+- Signing out of Shelf forgets the kept chapters.
 
 ### OPDS catalog
 

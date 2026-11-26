@@ -39,7 +39,8 @@ log = logging.getLogger("shelf.auth")
 
 COOKIE = "shelf_login"
 COOKIE_AGE = 400 * 24 * 3600  # browsers keep cookies at most 400 days
-OPEN_PATHS = re.compile(r"^/(healthz|login|static/.*)$")
+# Open to anyone: what the login page and an installed app's icon need before you sign in.
+OPEN_PATHS = re.compile(r"^/(healthz|login|static/.*|manifest\.webmanifest|sw\.js)$")
 # Where Basic auth is accepted: the OPDS catalog, what it links to, the extension's API.
 BASIC_PATHS = re.compile(r"^/(opds(/.*)?|novel/\d+/export\.epub|covers/[^/]+|api/.*)$")
 # ...and of those, where a missing password gets a Basic challenge (the extension's API

@@ -82,13 +82,19 @@ body { background: var(--pico-background-color); }
 
 /* reader */
 .reader-bar { position: sticky; top: 0; z-index: 10; background: var(--pico-background-color); border-bottom: 1px solid var(--pico-muted-border-color); }
+/* Hidden while reading on a touch screen, leaving the progress line. */
+.reader-bar { transition: transform .2s ease; }
+.reader-bar.bar-hidden { transform: translateY(calc(-100% + 3px)); }
+@media (prefers-reduced-motion: reduce) { .reader-bar { transition: none; } }
+/* Taps turn pages at once, without waiting to see if they're a double tap (zoom). */
+.reader-main { touch-action: manipulation; }
 .reader-nav { display: flex; align-items: center; gap: .75rem; padding: .4rem 1rem; max-width: 70rem; margin: 0 auto; }
 .reader-back { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30%; text-decoration: none; }
 .reader-nav select { margin: 0; flex: 1; min-width: 0; padding-block: .3rem; height: auto; }
 .reader-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem 1rem; padding: .75rem 1rem; max-width: 70rem; margin: 0 auto; font-size: .85rem; }
 .reader-settings label { margin: 0; }
 .reader-settings select, .reader-settings input { margin: .2rem 0 0; }
-.reader-progress { height: 3px; }
+.reader-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; } /* over the border */
 #progress-bar { height: 100%; width: 0; background: var(--pico-primary); transition: width .15s; }
 .reader-main { max-width: var(--reader-width); margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 .chapter h1 { font-size: 1.6em; margin-bottom: 1.5em; }

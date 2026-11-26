@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Offline · Shelf</title>
+  <style>
+    :root { --bg: #fff; --fg: #1d2330; --muted: #646b79; --link: #0172ad; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #13171f; --fg: #dfe3eb; --muted: #8891a4; --link: #01aaff; } }
+    body { margin: 0; padding: 3rem 1.25rem; background: var(--bg); color: var(--fg);
+           font: 1.05rem/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 34rem; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+    p { color: var(--muted); }
+    a { color: var(--link); }
+    ul { padding-left: 1.2rem; }
+    li { margin: .4rem 0; }
+    button { font: inherit; padding: .5rem 1rem; border-radius: .4rem; border: 1px solid var(--muted);
+             background: none; color: var(--fg); cursor: pointer; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>📚 Shelf can't be reached</h1>
+  <p>You're offline, or the server is down.</p>
+  <p><button type="button" onclick="location.reload()">Try again</button></p>
+  <section id="kept" hidden>
+    <h2>Read offline</h2>
+    <p>Chapters you opened lately:</p>
+    <ul id="kept-list"></ul>
+  </section>
+</main>
+<script>
+  // The chapters Shelf's service worker kept (see sw.js), newest first, by page title.
+  (async () => {
+    if (!("caches" in self)) return;
+    const cache = await caches.open("shelf-pages");
+    const list = document.getElementById("kept-list");
+    for (const req of (await cache.keys()).reverse()) {
+      const resp = await cache.match(req);
+      const html = resp ? await resp.text() : "";
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = new URL(req.url).pathname;
+      a.textContent = doc.title || a.href;
+      li.append(a);
+      list.append(li);
+    }
+    document.getElementById("kept").hidden = !list.children.length;
+  })();
+</script>
+</body>
+</html>

@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ chapter.title }} · {{ novel.title }}{% endblock %}
+{% block head %}
+{% if next_id %}
+{# Chromium browsers load the next chapter in the background, so moving on is instant. #}
+<script type="speculationrules">{"prerender": [{"source": "list", "urls": ["/chapter/{{ next_id }}"]}]}</script>
+{% endif %}
+{% endblock %}
 {% block body_class %}reader{% endblock %}
 {% block main_class %}reader-main{% endblock %}
 {% block header %}
@@ -28,6 +34,9 @@
     <label>Align
       <select name="align"><option value="left">Left</option><option value="justify">Justify</option></select>
     </label>
+    <label>Tap the edges
+      <select name="tap"><option value="page">Turn the page</option><option value="chapter">Change chapter</option><option value="off">Do nothing</option></select>
+    </label>
     <label>Glossary
       <select name="gloss"><option value="all">Mark every mention</option><option value="first">Mark the first in each chapter</option><option value="off">Don't mark terms</option></select>
     </label>
@@ -36,7 +45,7 @@
 </header>
 {% endblock %}
 {% block content %}
-<div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}" data-novel-id="{{ novel.id }}" data-resume="{{ resume }}">
+<div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}"{% if next_id %} data-next="/chapter/{{ next_id }}"{% endif %} data-novel-id="{{ novel.id }}" data-resume="{{ resume }}">
   <header>
     <p class="muted chapter-meta">{% if chapter.season_label %}{{ chapter.season_label }} · {% endif %}Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
     <h1>{{ chapter.title }}</h1>
