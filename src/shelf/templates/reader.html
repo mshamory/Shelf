@@ -47,7 +47,7 @@
 {% block content %}
 <div class="chapter" id="chapter" data-chapter-id="{{ chapter.id }}"{% if next_id %} data-next="/chapter/{{ next_id }}"{% endif %} data-novel-id="{{ novel.id }}" data-resume="{{ resume }}">
   <header>
-    <p class="muted chapter-meta">{% if chapter.season_label %}{{ chapter.season_label }} · {% endif %}Chapter {{ (index or 0) + 1 }} of {{ toc|length }}</p>
+    <p class="muted chapter-meta">{% if chapter.season_label %}{{ chapter.season_label }} · {% endif %}Chapter {{ (index or 0) + 1 }} of {{ toc|length }} · <span title="{{ '{:,}'.format(chapter.word_count) }} words">{{ chapter.word_count|read_time }}</span></p>
     <h1>{{ chapter.title }}</h1>
   </header>
   {% if original %}

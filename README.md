@@ -54,6 +54,9 @@ the browser can be added too.
 - **Reader**: themes (light, dark, sepia), font, size, line-height, width and alignment
   settings, ←/→ keys for chapter navigation, and progress saved per novel (chapter and
   scroll position).
+- **Reading times**: each chapter's, in the reader and the chapter list, plus the whole
+  novel's and what's left after your place, at 250 words a minute. Chinese and Japanese text
+  counts two characters as a word.
 - **Reading on a phone**: tap the right or left edge of the screen to turn a page; at the end
   of a chapter, the next tap opens the next one (or set taps to change chapter, or do nothing,
   under **Aa**). Tapping the middle shows or hides the top bar, which also hides as you scroll

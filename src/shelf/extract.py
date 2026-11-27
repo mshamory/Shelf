@@ -268,6 +268,22 @@ def strip_trailing_widgets(html: str) -> str:
     return html
 
 
+# Chinese characters and Japanese kana: written without spaces, read about twice as many a
+# minute as English words (Korean puts spaces between words, so it counts in words).
+CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]")
+WORD_RE = re.compile(r"\w+(?:['’-]\w+)*")
+
+
+def word_count(html: str) -> int:
+    """Words in a chapter's text, for its reading time: two Chinese or Japanese characters
+    count as one word."""
+    tree = HTMLParser(html)
+    node = tree.body or tree.root
+    text = node.text(separator=" ") if node else ""
+    cjk = len(CJK_RE.findall(text))
+    return len(WORD_RE.findall(CJK_RE.sub(" ", text))) + (cjk + 1) // 2
+
+
 def text_length(html: str) -> int:
     tree = HTMLParser(html)
     node = tree.body or tree.root

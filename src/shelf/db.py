@@ -73,6 +73,7 @@ class Chapter(SQLModel, table=True):
     captured_at: str = ""
     content_html: str = Field(default="", sa_column=Column(Text))
     char_count: int = 0
+    word_count: int = 0  # for the reading time; kept up to date with content_html (below)
     hidden: bool = False
     # Another capture of the same chapter number was preferred; imported hidden.
     duplicate: bool = False
@@ -95,6 +96,20 @@ class Chapter(SQLModel, table=True):
     custom_content: bool = False
 
     novel: Novel | None = Relationship(back_populates="chapters")
+
+
+@event.listens_for(Chapter, "before_insert")
+@event.listens_for(Chapter, "before_update")
+def _count_words(_mapper, _conn, chapter):
+    """Whenever a chapter's text is saved (import, capture, edit, restore), recount its
+    words. (On saving: SQLModel's constructor sets fields without attribute events.)"""
+    from sqlalchemy import inspect
+
+    from .extract import word_count
+
+    state = inspect(chapter)
+    if state.pending or state.attrs.content_html.history.has_changes():
+        chapter.word_count = word_count(chapter.content_html or "")
 
 
 VERSION_FIELDS = (
@@ -241,6 +256,8 @@ def init_db() -> None:
             # Novels you had started are the ones you're reading.
             conn.exec_driver_sql(
                 "UPDATE novel SET reading_status = 'reading' WHERE last_chapter_id IS NOT NULL")
+        if "chapter.word_count" in added:
+            _count_all_words(conn)
         if "novel.left_when_read" in added:
             # What's after your place now is known; anything added from here on is new.
             conn.exec_driver_sql(
@@ -248,6 +265,28 @@ def init_db() -> None:
                 "WHERE l.id = novel.last_chapter_id AND c.novel_id = novel.id "
                 "AND c.hidden = 0 AND c.position > l.position) "
                 "WHERE last_chapter_id IS NOT NULL")
+
+
+def _count_all_words(conn) -> None:
+    """Existing chapters' word counts, when the column is new."""
+    import logging
+
+    from .extract import word_count
+
+    total = conn.exec_driver_sql("SELECT count(*) FROM chapter").scalar()
+    logging.getLogger("shelf").info(
+        "Counting the words in %d chapters for their reading times (once; this can take a "
+        "minute)", total)
+    last = 0
+    while True:
+        rows = conn.exec_driver_sql(
+            "SELECT id, content_html FROM chapter WHERE id > ? ORDER BY id LIMIT 500",
+            (last,)).fetchall()
+        if not rows:
+            return
+        conn.exec_driver_sql("UPDATE chapter SET word_count = ? WHERE id = ?",
+                             [(word_count(html or ""), cid) for cid, html in rows])
+        last = rows[-1][0]
 
 
 def get_session():

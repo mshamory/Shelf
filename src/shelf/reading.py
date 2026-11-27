@@ -76,3 +76,19 @@ def note_added(novel: Novel, before: set[str], after: set[str]) -> None:
     """An import or capture changed the chapters: if any is new, the novel was updated."""
     if after - before:
         novel.updated_at = utcnow()
+
+
+WORDS_PER_MINUTE = 250  # a typical pace for fiction
+
+
+def read_time(words: int, about: bool = False) -> str:
+    """How long `words` take to read: "12 min", "2 h 5 min", "about 40 h"."""
+    minutes = max(1, round(words / WORDS_PER_MINUTE))
+    if minutes < 60:
+        text = f"{minutes} min"
+    elif minutes < 600:
+        hours, rest = divmod(minutes, 60)
+        text = f"{hours} h {rest} min" if rest else f"{hours} h"
+    else:
+        text = f"{round(minutes / 60)} h"
+    return f"about {text}" if about else text

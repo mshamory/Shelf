@@ -31,7 +31,7 @@
         {% for key, label in statuses.items() %}<option value="{{ key }}" {% if novel.reading_status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
       <noscript><button type="submit" class="small">Save</button></noscript>
-      {% if last %}<span class="muted">{% if new %}<strong class="new-note">{{ new }} new chapter{{ 's' if new != 1 }}</strong> since you last read · {% endif %}{% if left %}{{ left }} chapter{{ 's' if left != 1 }} left{% else %}Caught up{% endif %}</span>{% endif %}
+      {% if last %}<span class="muted">{% if new %}<strong class="new-note">{{ new }} new chapter{{ 's' if new != 1 }}</strong> since you last read · {% endif %}{% if left %}{{ left }} chapter{{ 's' if left != 1 }} left, {{ words_left|read_time(about=True) }}{% else %}Caught up{% endif %}</span>{% endif %}
     </form>
 
     <dl class="facts">
@@ -114,7 +114,7 @@
 
 <section class="chapter-list">
   <header class="chapter-list-head">
-    <h3>Chapters <small class="muted">({{ chapters|length }}{% if hidden_count and not show_hidden %}, {{ hidden_count }} hidden{% endif %})</small></h3>
+    <h3>Chapters <small class="muted">({{ chapters|length }}{% if hidden_count and not show_hidden %}, {{ hidden_count }} hidden{% endif %}{% if words_total %} · {{ words_total|read_time(about=True) }}{% endif %})</small></h3>
     <div class="actions">
       {% if show_hidden %}
         <a href="/novel/{{ novel.id }}">Done</a>
@@ -277,7 +277,7 @@
           </form>
         </span>
       {% else %}
-        <small class="muted">{{ (c.char_count / 1000)|round(1) }}k</small>
+        <small class="muted" title="{{ '{:,}'.format(c.word_count) }} words">{{ c.word_count|read_time }}</small>
       {% endif %}
     </li>
     {% endfor %}

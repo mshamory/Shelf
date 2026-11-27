@@ -76,6 +76,7 @@ from .reading import (
     new_chapters,
     new_count,
     note_read,
+    read_time,
 )
 from .saved import MAX_PAGE_BYTES, add_saved_pages, is_saved_page
 from .trim import MODES, InvalidRule, apply_rules, compile_rule, compile_rules
@@ -118,6 +119,7 @@ def asset(path: str) -> str:
 
 
 templates.env.globals["asset"] = asset
+templates.env.filters["read_time"] = read_time
 
 
 def epub_file(novel: Novel, url: str) -> str:
@@ -153,7 +155,8 @@ def get_novel(session: Session, novel_id: int) -> Novel:
 def visible_chapters(session: Session, novel_id: int, include_hidden: bool = False):
     q = select(Chapter.id, Chapter.position, Chapter.number, Chapter.number_end,
                Chapter.auto_number_end, Chapter.season,
-               Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.hidden,
+               Chapter.season_label, Chapter.title, Chapter.char_count, Chapter.word_count,
+               Chapter.hidden,
                Chapter.url, Chapter.auto_title, Chapter.auto_number, Chapter.custom_title,
                Chapter.custom_number, Chapter.custom_season,
                Chapter.origin, Chapter.duplicate).where(Chapter.novel_id == novel_id)
@@ -378,6 +381,8 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
     ).one()
     last = session.get(Chapter, novel.last_chapter_id) if novel.last_chapter_id else None
     left = chapters_left(session, [novel_id]).get(novel_id, 0)
+    shown = [c for c in chapters if not c.hidden]
+    words_left = sum(c.word_count for c in shown if last and c.position > last.position)
     gaps = novel_gaps(session, novel_id).get(novel_id, [])
     main = [c for c in chapters if c.number is not None and c.season != SIDE_SEASON]
     first_season = min((c.season or 0 for c in main), default=0)
@@ -387,6 +392,7 @@ def novel_page(request: Request, session: SessionDep, novel_id: int, hidden: boo
         "novel.html",
         {"novel": novel, "chapters": chapters, "last": last, "show_hidden": hidden,
          "left": left, "new": new_count(novel, left), "statuses": STATUSES,
+         "words_left": words_left, "words_total": sum(c.word_count for c in shown),
          "hidden_count": hidden_count, "gaps": gaps,
          "total_chapters": (len(chapters) if hidden else len(chapters) + hidden_count),
          "archive_exists": has_archive(novel)
