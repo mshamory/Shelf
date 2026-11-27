@@ -1099,7 +1099,7 @@ def web_manifest():
         {"id": "/", "name": "Shelf", "short_name": "Shelf",
          "description": "Your web-novel archives and e-books, in one reader.",
          "start_url": "/", "scope": "/", "display": "standalone",
-         "background_color": "#ffffff", "theme_color": "#182c63", "icons": icons},
+         "background_color": "#fbf4e6", "theme_color": "#fbf4e6", "icons": icons},
         media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
 
 
