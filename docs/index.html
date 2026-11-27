@@ -8,7 +8,8 @@
 <meta property="og:title" content="Shelf">
 <meta property="og:description" content="A self-hosted reader for your web-novel archives.">
 <meta property="og:image" content="https://mshamory.github.io/Shelf/screenshots/library.webp">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 :root {
   color-scheme: light dark;
@@ -54,7 +55,9 @@ img { max-width: 100%; height: auto; display: block; }
 header.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 header.top .wrap { display: flex; align-items: center; gap: 1.5rem; height: 3.5rem; }
-.brand { font: 700 1.15rem var(--serif); color: var(--ink); text-decoration: none; margin-right: auto; }
+.brand { display: inline-flex; align-items: center; gap: .55rem; font: 700 1.15rem var(--serif); color: var(--ink); text-decoration: none; margin-right: auto; }
+.brand img, .foot-brand img { flex: none; }
+.foot-brand { display: inline-flex; align-items: center; gap: .45rem; }
 header nav { display: flex; gap: 1.25rem; font-size: .95rem; }
 header nav a { color: var(--muted); text-decoration: none; }
 header nav a:hover { color: var(--ink); }
@@ -139,7 +142,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; justify-conten
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="#">📚 Shelf</a>
+    <a class="brand" href="#"><img src="icon.svg" alt="" width="30" height="30">Shelf</a>
     <nav>
       <a href="#features">Features</a>
       <a href="#screenshots">Screenshots</a>
@@ -301,7 +304,7 @@ uv run shelf     <span class="c"># http://localhost:8000, uses ./library and ./d
         <div class="table-wrap"><table>
           <tr><th>Tag</th><th>What it is</th></tr>
           <tr><td><code>latest</code></td><td>The newest release</td></tr>
-          <tr><td><code>0.1</code>, <code>0.1.0</code></td><td>A specific release</td></tr>
+          <tr><td><code>0.2</code>, <code>0.2.0</code></td><td>A specific release</td></tr>
           <tr><td><code>edge</code></td><td>The newest commit on <code>master</code></td></tr>
         </table></div>
       </div>
@@ -343,7 +346,7 @@ uv run shelf     <span class="c"># http://localhost:8000, uses ./library and ./d
 
 <footer>
   <div class="wrap">
-    <span>📚 Shelf: a self-hosted web-novel reader</span>
+    <span class="foot-brand"><img src="icon.svg" alt="" width="20" height="20">Shelf: a self-hosted web-novel reader</span>
     <span><a href="https://github.com/mshamory/Shelf">Source</a> · <a href="https://github.com/mshamory/Shelf/releases">Releases</a> · <a href="https://github.com/mshamory/Shelf/issues">Issues</a></span>
   </div>
 </footer>

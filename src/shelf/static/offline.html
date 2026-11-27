@@ -11,7 +11,7 @@
     body { margin: 0; padding: 3rem 1.25rem; background: var(--bg); color: var(--fg);
            font: 1.05rem/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
     main { max-width: 34rem; margin: 0 auto; }
-    h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 .5rem; display: flex; align-items: center; gap: .6rem; }
     p { color: var(--muted); }
     a { color: var(--link); }
     ul { padding-left: 1.2rem; }
@@ -22,7 +22,7 @@
 </head>
 <body>
 <main>
-  <h1>📚 Shelf can't be reached</h1>
+  <h1><img src="/static/icons/icon.svg" alt="" width="36" height="36"> Shelf can't be reached</h1>
   <p>You're offline, or the server is down.</p>
   <p><button type="button" onclick="location.reload()">Try again</button></p>
   <section id="kept" hidden>

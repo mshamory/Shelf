@@ -25,7 +25,8 @@ body { background: var(--pico-background-color); }
 .muted { color: var(--pico-muted-color); }
 .warn { color: #c0392b; }
 .small, button.small { padding: .25rem .6rem; font-size: .8rem; margin: 0; width: auto; }
-.brand { text-decoration: none; }
+.brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; }
+.brand-icon { width: 1.75rem; height: 1.75rem; flex: none; }
 .nav-search input { margin: 0; height: 2.4rem; }
 
 .flash { padding: .75rem 1rem; border-radius: var(--pico-border-radius); background: var(--pico-card-background-color); border-left: 4px solid var(--pico-primary); }
@@ -91,7 +92,7 @@ body { background: var(--pico-background-color); }
 .reader-nav { display: flex; align-items: center; gap: .75rem; padding: .4rem 1rem; max-width: 70rem; margin: 0 auto; }
 .reader-back { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30%; text-decoration: none; }
 .reader-nav select { margin: 0; flex: 1; min-width: 0; padding-block: .3rem; height: auto; }
-.reader-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem 1rem; padding: .75rem 1rem; max-width: 70rem; margin: 0 auto; font-size: .85rem; }
+.reader-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: .5rem 1rem; padding: .75rem 1rem; max-width: 70rem; margin: 0 auto; font-size: .85rem; }
 .reader-settings label { margin: 0; }
 .reader-settings select, .reader-settings input { margin: .2rem 0 0; }
 .reader-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; } /* over the border */

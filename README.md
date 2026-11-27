@@ -1,3 +1,5 @@
+<p align="center"><img src="src/shelf/static/icons/icon.svg" alt="" width="96" height="96"></p>
+
 # Shelf
 
 A self-hosted reader for local archives of web novels. Drop
@@ -8,6 +10,26 @@ metadata from [NovelUpdates](https://www.novelupdates.com). EPUB e-books and pag
 the browser can be added too.
 
 **Website:** <https://mshamory.github.io/Shelf/> (overview, screenshots and install steps)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/library-dark.webp">
+  <img src="docs/screenshots/library.webp" alt="The library: novel covers with reading lists, chapters left and new-chapter badges">
+</picture>
+
+## Screenshots
+
+These show a demo library of invented novels.
+
+| | |
+| --- | --- |
+| <img src="docs/screenshots/novel.webp" alt="A novel's page with its details, reading list and contents"> | <img src="docs/screenshots/reader.webp" alt="The reader, with a glossary term's description shown"> |
+| A novel's page: details from NovelUpdates, your list, and the time left to read | The reader, explaining a glossary term |
+| <img src="docs/screenshots/reader-sepia.webp" alt="The reader in sepia with its settings open"> | <img src="docs/screenshots/glossary.webp" alt="A novel's glossary of characters, places and terms"> |
+| Reading settings, in sepia | The glossary |
+| <img src="docs/screenshots/editor.webp" alt="Editing a chapter's text"> | <img src="docs/screenshots/search.webp" alt="Search results across every chapter"> |
+| The chapter editor | Search across every chapter |
+
+<p align="center"><img src="docs/screenshots/reader-phone.webp" alt="The reader on a phone, in dark mode" width="300"><br>On a phone, in dark mode</p>
 
 ## Features
 
@@ -181,7 +203,7 @@ docker compose up -d
 
 This pulls the published image, `ghcr.io/mshamory/shelf` (for `linux/amd64` and
 `linux/arm64`). `latest` is the newest release and `edge` follows `master`; set `SHELF_IMAGE`
-to pick another tag, such as `SHELF_IMAGE=ghcr.io/mshamory/shelf:0.1`. To build from your
+to pick another tag, such as `SHELF_IMAGE=ghcr.io/mshamory/shelf:0.2`. To build from your
 checkout instead, run `docker compose up -d --build`.
 
 Then open <http://localhost:8000>. The library is scanned at startup and whenever you press
@@ -239,12 +261,12 @@ GitHub Actions runs ruff and the tests on every push and pull request, and publi
 `src/shelf/__init__.py`, commit, then push a tag:
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
-The tag publishes the image as `0.2.0`, `0.2` and `latest` (and `0` from 1.0 on), and creates
+The tag publishes the image as `0.3.0`, `0.3` and `latest` (and `0` from 1.0 on), and creates
 a GitHub release with generated notes, the wheel, the source archive and the browser
-extension. A tag with a suffix, like `v0.2.0-rc1`, is marked as a pre-release.
+extension. A tag with a suffix, like `v0.3.0-rc1`, is marked as a pre-release.
 
 ## How a WACZ becomes a novel
 

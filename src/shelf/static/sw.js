@@ -14,12 +14,13 @@ const STATIC = "shelf-static-" + VERSION; // scripts, styles and icons (their UR
 const PAGES = "shelf-pages"; // chapters you've opened, for reading offline
 const READY = "shelf-ready"; // the next chapter, fetched ahead, shown once
 const OFFLINE = "/static/offline.html";
+const OFFLINE_ICON = "/static/icons/icon.svg"; // shown on the offline page
 const KEEP_PAGES = 30;
 const READY_AGE = 30 * 60 * 1000;
 const CHAPTER = /^\/chapter\/\d+$/;
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(STATIC).then((c) => c.add(OFFLINE)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(STATIC).then((c) => c.addAll([OFFLINE, OFFLINE_ICON])).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
