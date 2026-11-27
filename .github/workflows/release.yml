@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.2.0 (matching the version in pyproject.toml and src/shelf/__init__.py)
+# Push a tag like v0.3.0 (matching the version in pyproject.toml and src/shelf/__init__.py)
 # to publish a GitHub release with the wheel, source archive and browser extension.
 # The container image for the tag is published by docker.yml.
 on:

@@ -1,6 +1,6 @@
 [project]
 name = "shelf"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-hosted reader for local WACZ archives of web novels, with NovelUpdates metadata"
 readme = "README.md"
 requires-python = ">=3.12"
